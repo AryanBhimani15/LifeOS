@@ -25,9 +25,14 @@ const SESSION_COOKIES = ["authjs.session-token", "__Secure-authjs.session-token"
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
+  // API routes must never be redirected. They authenticate themselves in
+  // `defineRoute` and answer with 401 JSON; redirecting them to an HTML login
+  // page hands `fetch` a document where it expects JSON, so the client sees a
+  // parse error instead of "you are signed out".
+  if (pathname.startsWith("/api/")) return NextResponse.next();
+
   const isPublic =
     PUBLIC_PATHS.includes(pathname) ||
-    pathname.startsWith("/api/auth") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon");
 
