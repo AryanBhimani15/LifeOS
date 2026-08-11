@@ -1,0 +1,829 @@
+// LifeOS data model.
+//
+// Conventions enforced across this schema:
+//  * Every user-owned row carries `userId` and cascades on user deletion, so
+//    "delete my account" is a single delete that leaves no orphans behind.
+//  * Tags use one composite-PK join table per taggable entity. Small links with
+//    2-3 targets (NoteLink, Milestone) use an exclusive arc: nullable FKs plus a
+//    CHECK constraint that exactly one is set. Neither uses entityType/entityId,
+//    which would forfeit foreign keys and cascade deletes entirely.
+//  * Recurrence deletions are tombstoned in RecurrenceException so lazy expansion
+//    cannot resurrect an occurrence the user removed.
+//  * Recurring tasks store a rule and materialize instances lazily. The unique
+//    constraint on (seriesId, occurrenceOn) is what makes that idempotent under
+//    concurrent expansion.
+//  * Money is stored as integer minor units. Floats lose money.
+//
+// See docs/database.md and docs/decisions.md for the reasoning behind each.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 no longer accepts `url` here. The CLI reads the connection string from
+// prisma.config.ts; the runtime client gets it via the pg driver adapter in
+// src/lib/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  passwordHash  String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  settings UserSettings?
+
+  projects     Project[]
+  tasks        Task[]
+  events       Event[]
+  notes        Note[]
+  noteFolders  NoteFolder[]
+  habits       Habit[]
+  habitLogs    HabitCompletion[]
+  goals        Goal[]
+  journal      JournalEntry[]
+  expenses     Expense[]
+  budgets      Budget[]
+  categories   ExpenseCategory[]
+  documents    Document[]
+  tags         Tag[]
+  reminders    Reminder[]
+  auditLogs    AuditLog[]
+  commandPlans AiCommandPlan[]
+  recurrences  RecurrenceRule[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  theme         String  @default("system") // system | light | dark
+  timezone      String  @default("UTC") // IANA zone; drives recurrence expansion
+  weekStartsOn  Int     @default(1) // 0 = Sunday
+  locale        String  @default("en-US")
+  currency      String  @default("USD")
+  emailDigest   Boolean @default(false)
+  digestHour    Int     @default(7)
+  aiEnabled     Boolean @default(true)
+  aiModel       String  @default("gemini-3.6-flash")
+  reducedMotion Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum RecurrenceFreq {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  PAUSED
+  ABANDONED
+}
+
+enum HabitCadence {
+  DAILY
+  SPECIFIC_DAYS
+  TIMES_PER_WEEK
+}
+
+enum ExpenseKind {
+  EXPENSE
+  INCOME
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  SIGNUP
+  EXPORT
+  ACCOUNT_DELETE
+  AI_PLAN
+  AI_EXECUTE
+  AI_REJECT
+  SETTINGS_CHANGE
+}
+
+enum PlanStatus {
+  PENDING
+  EXECUTED
+  REJECTED
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  name        String
+  description String?       @db.Text
+  status      ProjectStatus @default(ACTIVE)
+  priority    Priority      @default(MEDIUM)
+  color       String        @default("#6366f1")
+  startDate   DateTime?
+  dueDate     DateTime?
+  archivedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks      Task[]
+  notes      Note[]
+  events     Event[]
+  goals      Goal[]
+  milestones Milestone[]
+  journal    JournalEntry[]
+  activities ProjectActivity[]
+  noteLinks  NoteLink[]
+  tags       ProjectTag[]
+
+  @@index([userId, status])
+  @@index([userId, dueDate])
+  @@map("projects")
+}
+
+model ProjectActivity {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  kind      String // task.created | task.completed | status.changed | note.linked ...
+  summary   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@map("project_activities")
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+model RecurrenceRule {
+  id         String         @id @default(cuid())
+  userId     String
+  freq       RecurrenceFreq
+  interval   Int            @default(1)
+  byWeekday  Int[]          @default([]) // 0=Sun .. 6=Sat, for WEEKLY
+  byMonthday Int? // for MONTHLY
+  timezone   String         @default("UTC") // expansion happens in this zone
+  atMinutes  Int            @default(540) // minutes past local midnight (09:00)
+  startsOn   DateTime       @db.Date
+  until      DateTime?      @db.Date
+  count      Int?
+  createdAt  DateTime       @default(now())
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks      Task[]
+  events     Event[]
+  exceptions RecurrenceException[]
+
+  @@index([userId])
+  @@map("recurrence_rules")
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  userId      String
+  projectId   String?
+  parentId    String? // subtask nesting
+  title       String
+  description String?    @db.Text
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  dueAt       DateTime?
+  startAt     DateTime?
+  completedAt DateTime?
+  estimateMin Int?
+  boardOrder  Float      @default(0) // fractional rank for drag-and-drop
+
+  // A task is either a recurrence template (isTemplate) or a materialized
+  // instance pointing back at its template through seriesId.
+  recurrenceRuleId String?
+  isTemplate       Boolean   @default(false)
+  seriesId         String?
+  occurrenceOn     DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parent     Task?           @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks   Task[]          @relation("Subtasks")
+  recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
+  series     Task?           @relation("Series", fields: [seriesId], references: [id], onDelete: SetNull)
+  instances  Task[]          @relation("Series")
+  events     Event[]
+  reminders  Reminder[]
+  noteLinks  NoteLink[]
+  tags       TaskTag[]
+
+  @@unique([seriesId, occurrenceOn])
+  @@index([userId, status, dueAt])
+  @@index([userId, projectId])
+  @@index([userId, dueAt])
+  @@index([parentId])
+  @@map("tasks")
+}
+
+model Reminder {
+  id        String    @id @default(cuid())
+  userId    String
+  taskId    String
+  remindAt  DateTime
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, remindAt])
+  @@index([taskId])
+  @@map("reminders")
+}
+
+// ---------------------------------------------------------------------------
+// Calendar
+// ---------------------------------------------------------------------------
+
+model Event {
+  id          String   @id @default(cuid())
+  userId      String
+  projectId   String?
+  taskId      String?
+  title       String
+  description String?  @db.Text
+  location    String?
+  startAt     DateTime
+  endAt       DateTime
+  allDay      Boolean  @default(false)
+  color       String?
+
+  recurrenceRuleId String?
+  isTemplate       Boolean   @default(false)
+  seriesId         String?
+  occurrenceOn     DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  task       Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
+  series     Event?          @relation("EventSeries", fields: [seriesId], references: [id], onDelete: SetNull)
+  instances  Event[]         @relation("EventSeries")
+
+  @@unique([seriesId, occurrenceOn])
+  @@index([userId, startAt])
+  @@map("events")
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+model NoteFolder {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes Note[]
+
+  @@unique([userId, name])
+  @@map("note_folders")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String?
+  folderId  String?
+  title     String
+  content   String   @db.Text // markdown
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  folder   NoteFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  links    NoteLink[]
+  tags     NoteTag[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, folderId])
+  @@map("notes")
+}
+
+/// Exclusive arc: exactly one of taskId / projectId / goalId is set, enforced by a
+/// CHECK constraint added in migration. Keeps the referential integrity that a
+/// polymorphic entityId column would lose.
+model NoteLink {
+  id        String   @id @default(cuid())
+  noteId    String
+  taskId    String?
+  projectId String?
+  goalId    String?
+  createdAt DateTime @default(now())
+
+  note    Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  goal    Goal?    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, taskId])
+  @@unique([noteId, projectId])
+  @@unique([noteId, goalId])
+  @@index([taskId])
+  @@index([projectId])
+  @@index([goalId])
+  @@map("note_links")
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+//
+// One join table per taggable entity rather than a single wide "exclusive arc"
+// table. The arc version needed six nullable FK columns, a raw-SQL CHECK
+// constraint, and six unique indexes in which most entries were NULL padding;
+// it also produced Prisma types where five of six relations were always null.
+// Composite-PK join tables are denser, honestly typed, and need no CHECK.
+//
+// "Everything tagged X" is six indexed lookups run in parallel, which beats a
+// six-way LEFT JOIN over a sparse table. Adding a seventh taggable entity costs
+// one new table instead of a column plus a constraint rewrite.
+// ---------------------------------------------------------------------------
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#64748b")
+  createdAt DateTime @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks    TaskTag[]
+  notes    NoteTag[]
+  projects ProjectTag[]
+  expenses ExpenseTag[]
+  goals    GoalTag[]
+  journal  JournalTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([tagId])
+  @@map("task_tags")
+}
+
+model NoteTag {
+  noteId String
+  tagId  String
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, tagId])
+  @@index([tagId])
+  @@map("note_tags")
+}
+
+model ProjectTag {
+  projectId String
+  tagId     String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, tagId])
+  @@index([tagId])
+  @@map("project_tags")
+}
+
+model ExpenseTag {
+  expenseId String
+  tagId     String
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([expenseId, tagId])
+  @@index([tagId])
+  @@map("expense_tags")
+}
+
+model GoalTag {
+  goalId String
+  tagId  String
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, tagId])
+  @@index([tagId])
+  @@map("goal_tags")
+}
+
+model JournalTag {
+  journalId String
+  tagId     String
+
+  journal JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  tag     Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([journalId, tagId])
+  @@index([tagId])
+  @@map("journal_tags")
+}
+
+/// Tombstone for a recurring occurrence the user deleted or moved. Without this,
+/// lazy expansion re-materializes an occurrence the user already removed — the
+/// unique constraint prevents duplicates, but nothing prevents resurrection.
+model RecurrenceException {
+  id          String   @id @default(cuid())
+  ruleId      String
+  cancelledOn DateTime @db.Date
+  createdAt   DateTime @default(now())
+
+  rule RecurrenceRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, cancelledOn])
+  @@index([ruleId])
+  @@map("recurrence_exceptions")
+}
+
+// ---------------------------------------------------------------------------
+// Habits
+// ---------------------------------------------------------------------------
+
+model Habit {
+  id            String       @id @default(cuid())
+  userId        String
+  name          String
+  description   String?
+  cadence       HabitCadence @default(DAILY)
+  targetPerWeek Int          @default(7)
+  byWeekday     Int[]        @default([])
+  color         String       @default("#10b981")
+  archivedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completions HabitCompletion[]
+
+  @@index([userId])
+  @@map("habits")
+}
+
+model HabitCompletion {
+  id          String   @id @default(cuid())
+  habitId     String
+  userId      String
+  completedOn DateTime @db.Date
+  note        String?
+  createdAt   DateTime @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, completedOn])
+  @@index([userId, completedOn])
+  @@map("habit_completions")
+}
+
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+model Goal {
+  id          String     @id @default(cuid())
+  userId      String
+  projectId   String?
+  title       String
+  description String?    @db.Text
+  status      GoalStatus @default(ACTIVE)
+  targetDate  DateTime?
+  achievedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  milestones Milestone[]
+  progress   GoalProgress[]
+  journal    JournalEntry[]
+  noteLinks  NoteLink[]
+  tags       GoalTag[]
+
+  @@index([userId, status])
+  @@map("goals")
+}
+
+/// Exclusive arc: a milestone belongs to exactly one of goal / project.
+model Milestone {
+  id          String    @id @default(cuid())
+  goalId      String?
+  projectId   String?
+  title       String
+  targetDate  DateTime?
+  completedAt DateTime?
+  sortOrder   Float     @default(0)
+  createdAt   DateTime  @default(now())
+
+  goal    Goal?    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([projectId])
+  @@map("milestones")
+}
+
+/// Append-only progress history, so a goal's trajectory is auditable rather than
+/// recomputed from current state.
+model GoalProgress {
+  id         String   @id @default(cuid())
+  goalId     String
+  percent    Int
+  note       String?
+  recordedAt DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId, recordedAt])
+  @@map("goal_progress")
+}
+
+// ---------------------------------------------------------------------------
+// Journal
+// ---------------------------------------------------------------------------
+
+model JournalEntry {
+  id           String   @id @default(cuid())
+  userId       String
+  projectId    String?
+  goalId       String?
+  entryDate    DateTime @db.Date
+  content      String   @db.Text
+  mood         Int? // 1..5
+  productivity Int? // 1..5
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal     Goal?     @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  tags     JournalTag[]
+
+  @@unique([userId, entryDate])
+  @@index([userId, entryDate])
+  @@map("journal_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Money
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id     String  @id @default(cuid())
+  userId String
+  name   String
+  color  String  @default("#f59e0b")
+  icon   String?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+  budgets  Budget[]
+
+  @@unique([userId, name])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id         String      @id @default(cuid())
+  userId     String
+  categoryId String?
+  kind       ExpenseKind @default(EXPENSE)
+  /// Minor units (cents). Never a float — binary floats cannot represent 0.10.
+  amountMinor Int
+  currency    String     @default("USD")
+  description String
+  merchant    String?
+  spentOn     DateTime   @db.Date
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags     ExpenseTag[]
+
+  @@index([userId, spentOn])
+  @@index([userId, categoryId])
+  @@map("expenses")
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  userId      String
+  categoryId  String?
+  name        String
+  limitMinor  Int
+  currency    String   @default("USD")
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  createdAt   DateTime @default(now())
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, periodStart])
+  @@map("budgets")
+}
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+
+model Document {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  mimeType   String
+  sizeBytes  Int
+  /// Server-generated storage key. Never a user-supplied path — that is a
+  /// path-traversal vector.
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("documents")
+}
+
+// ---------------------------------------------------------------------------
+// AI command centre
+// ---------------------------------------------------------------------------
+
+/// A parsed command is persisted as a plan before anything mutates. Destructive
+/// actions require a second request quoting this row's id, so confirmation cannot
+/// be bypassed by a crafted client request.
+model AiCommandPlan {
+  id           String     @id @default(cuid())
+  userId       String
+  rawInput     String     @db.Text
+  actions      Json /// validated AiAction[] — never raw model output
+  summary      String     @db.Text
+  needsConfirm Boolean    @default(false)
+  status       PlanStatus @default(PENDING)
+  model        String
+  result       Json?
+  error        String?    @db.Text
+  expiresAt    DateTime
+  executedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("ai_command_plans")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  action     AuditAction
+  entityType String?
+  entityId   String?
+  summary    String
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
