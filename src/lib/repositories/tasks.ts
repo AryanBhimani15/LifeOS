@@ -230,9 +230,12 @@ export async function updateTask(userId: string, id: string, input: UpdateTaskIn
  * Walks the parent chain to reject a re-parent that would create a cycle.
  * A cycle makes subtask trees infinite and hangs any recursive render.
  */
+const MAX_TASK_DEPTH = 50;
+
 async function assertNoCycle(userId: string, taskId: string, newParentId: string) {
   let cursor: string | null = newParentId;
-  for (let depth = 0; cursor && depth < 50; depth++) {
+  for (let depth = 0; depth < MAX_TASK_DEPTH; depth++) {
+    if (cursor === null) return; // reached a root without meeting ourselves
     if (cursor === taskId) throw badRequest("That would make the task its own ancestor");
     const parent: { parentId: string | null } | null = await db.task.findFirst({
       where: { id: cursor, userId },
@@ -240,6 +243,11 @@ async function assertNoCycle(userId: string, taskId: string, newParentId: string
     });
     cursor = parent?.parentId ?? null;
   }
+  // Running out of budget means the chain was NOT fully verified. Accepting the
+  // update here would let a deep hierarchy smuggle a cycle past the check.
+  throw badRequest(
+    `Task hierarchy is deeper than ${MAX_TASK_DEPTH} levels — move it somewhere shallower.`,
+  );
 }
 
 export async function deleteTask(userId: string, id: string) {

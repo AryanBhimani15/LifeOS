@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isRealCalendarDate } from "@/lib/dates";
 
 /**
  * The validated action schema — the security boundary of the AI command centre.
@@ -40,8 +41,18 @@ const taskStatus = z.enum(["TODO", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"
  * ("tomorrow at 6pm") using the user's timezone, which is supplied in the
  * prompt — the server does not re-interpret natural language dates.
  */
-const isoDateTime = z.string().datetime({ offset: true });
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const isoDateTime = z
+  .string()
+  .datetime({ offset: true })
+  .refine((v) => !Number.isNaN(Date.parse(v)), "Not a real instant");
+/**
+ * A shape check is not enough: "2026-02-30" matches the pattern, and both
+ * `new Date` and `Date.parse` roll it over to 2 March instead of rejecting it.
+ */
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+  .refine(isRealCalendarDate, "That date does not exist");
 
 export const createTaskAction = z.object({
   type: z.literal("create_task"),

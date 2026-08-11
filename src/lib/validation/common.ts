@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isRealCalendarDate } from "@/lib/dates";
 
 /**
  * Shared primitives for request validation.
@@ -33,10 +34,11 @@ export const isoDateTime = z
   .transform((s) => new Date(s));
 
 /** Calendar date (no time component), e.g. "2026-08-11". */
+/** Date.parse accepts 2026-02-30 and rolls it into March, so check the calendar. */
 export const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-  .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)), "Not a real date");
+  .refine(isRealCalendarDate, "That date does not exist");
 
 /** IANA timezone, validated against the runtime's own zone database. */
 export const timezone = z

@@ -51,3 +51,19 @@ export function formatMoney(minor: number, currency = "USD", locale = "en-US"): 
 export function sumMinor(amounts: number[]): number {
   return amounts.reduce((total, n) => total + n, 0);
 }
+
+/**
+ * PostgreSQL `integer` is signed 32-bit. A large amount in a 3-decimal currency
+ * (BHD, KWD) multiplies by 1000 and can exceed that range, which Prisma reports
+ * as an opaque driver error rather than a validation failure.
+ */
+export const MAX_SAFE_MINOR_UNITS = 2_147_483_647;
+
+export function assertSafeMinorUnits(minor: number): void {
+  if (!Number.isInteger(minor)) {
+    throw new Error(`Amount must be a whole number of minor units, got ${minor}`);
+  }
+  if (minor < 0 || minor > MAX_SAFE_MINOR_UNITS) {
+    throw new Error(`Amount out of range for storage: ${minor}`);
+  }
+}

@@ -68,11 +68,20 @@ describe("direct cross-user access", () => {
     const { alice, bob } = await makeTwoUsers();
     const task = await makeTask(alice.id);
 
-    await getTask(bob.id, task.id).catch((error: AppError) => {
-      expect(error.status).toBe(404);
-      expect(error.code).toBe("NOT_FOUND");
-      expect(error.message).not.toContain(task.id);
-    });
+    // Asserting only inside .catch() would make this test pass vacuously if the
+    // call ever succeeded — the callback simply would not run. Assert that it
+    // rejects first, then inspect the error.
+    const error = await getTask(bob.id, task.id).then(
+      () => {
+        throw new Error("expected getTask to reject for a foreign task");
+      },
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).status).toBe(404);
+    expect((error as AppError).code).toBe("NOT_FOUND");
+    expect((error as AppError).message).not.toContain(task.id);
   });
 });
 

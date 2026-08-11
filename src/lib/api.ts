@@ -49,7 +49,23 @@ interface RouteOptions<TBody, TQuery> {
   handler: (args: HandlerArgs<TBody, TQuery>) => Promise<Response | unknown>;
 }
 
+/**
+ * Client address for anonymous rate limiting.
+ *
+ * X-Forwarded-For is attacker-controlled unless a trusted proxy overwrites it:
+ * a client can simply send its own header and get a fresh quota per request,
+ * which defeats rate limiting on the endpoints that need it most (signup runs
+ * bcrypt). It is therefore only consulted when TRUST_PROXY_HEADERS is on,
+ * which an operator sets once they have a proxy that actually rewrites it.
+ *
+ * When untrusted, every anonymous request shares one bucket. That is
+ * deliberately conservative: a shared limit that holds beats a per-IP limit
+ * that anyone can sidestep.
+ */
+const TRUST_PROXY = process.env.TRUST_PROXY_HEADERS === "true";
+
 function clientIp(request: Request): string {
+  if (!TRUST_PROXY) return "anonymous";
   const forwarded = request.headers.get("x-forwarded-for");
   return forwarded?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
 }

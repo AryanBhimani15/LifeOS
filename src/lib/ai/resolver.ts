@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import type { EntityRef } from "./actions";
+import type { DbClient } from "@/lib/authz";
 
 /**
  * Deterministic reference resolution.
@@ -129,11 +130,15 @@ export async function resolveHabit(userId: string, ref: EntityRef) {
  * or project references, there is nothing to mis-target. Names are matched
  * case-insensitively so "Uni" and "uni" do not become two tags.
  */
-export async function resolveOrCreateTags(userId: string, names: string[]): Promise<string[]> {
+export async function resolveOrCreateTags(
+  userId: string,
+  names: string[],
+  client: DbClient = db,
+): Promise<string[]> {
   if (names.length === 0) return [];
 
   const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
-  const existing = await db.tag.findMany({
+  const existing = await client.tag.findMany({
     where: { userId, name: { in: cleaned, mode: "insensitive" } },
     select: { id: true, name: true },
   });
@@ -150,11 +155,11 @@ export async function resolveOrCreateTags(userId: string, names: string[]): Prom
     // Concurrent commands can race on the same name; the unique constraint on
     // (userId, name) makes the loser fall back to a read instead of failing.
     try {
-      const created = await db.tag.create({ data: { userId, name } });
+      const created = await client.tag.create({ data: { userId, name } });
       byLower.set(name.toLowerCase(), created.id);
       ids.push(created.id);
     } catch {
-      const raced = await db.tag.findFirst({
+      const raced = await client.tag.findFirst({
         where: { userId, name: { equals: name, mode: "insensitive" } },
         select: { id: true },
       });
@@ -169,21 +174,22 @@ export async function resolveOrCreateTags(userId: string, names: string[]): Prom
 export async function resolveOrCreateCategory(
   userId: string,
   name: string | undefined,
+  client: DbClient = db,
 ): Promise<string | null> {
   if (!name?.trim()) return null;
   const trimmed = name.trim();
 
-  const existing = await db.expenseCategory.findFirst({
+  const existing = await client.expenseCategory.findFirst({
     where: { userId, name: { equals: trimmed, mode: "insensitive" } },
     select: { id: true },
   });
   if (existing) return existing.id;
 
   try {
-    const created = await db.expenseCategory.create({ data: { userId, name: trimmed } });
+    const created = await client.expenseCategory.create({ data: { userId, name: trimmed } });
     return created.id;
   } catch {
-    const raced = await db.expenseCategory.findFirst({
+    const raced = await client.expenseCategory.findFirst({
       where: { userId, name: { equals: trimmed, mode: "insensitive" } },
       select: { id: true },
     });

@@ -1,5 +1,13 @@
 import { db } from "@/lib/db";
 import { notFound } from "@/lib/errors";
+import type { Prisma } from "@/generated/prisma/client";
+
+/**
+ * Ownership checks must be able to run INSIDE a transaction. Using the global
+ * client from within an interactive transaction opens a second connection that
+ * cannot see the transaction's own uncommitted rows, so callers pass their `tx`.
+ */
+export type DbClient = typeof db | Prisma.TransactionClient;
 
 /**
  * Ownership enforcement.
@@ -64,21 +72,21 @@ const LABELS: Record<OwnedModel, string> = {
  * than indexed dynamically so that a typo becomes a TypeScript error instead of
  * an ownership check that silently passes at runtime.
  */
-const COUNTERS: Record<OwnedModel, (id: string, userId: string) => Promise<number>> = {
-  project: (id, userId) => db.project.count({ where: { id, userId } }),
-  task: (id, userId) => db.task.count({ where: { id, userId } }),
-  note: (id, userId) => db.note.count({ where: { id, userId } }),
-  noteFolder: (id, userId) => db.noteFolder.count({ where: { id, userId } }),
-  goal: (id, userId) => db.goal.count({ where: { id, userId } }),
-  habit: (id, userId) => db.habit.count({ where: { id, userId } }),
-  event: (id, userId) => db.event.count({ where: { id, userId } }),
-  expense: (id, userId) => db.expense.count({ where: { id, userId } }),
-  expenseCategory: (id, userId) => db.expenseCategory.count({ where: { id, userId } }),
-  budget: (id, userId) => db.budget.count({ where: { id, userId } }),
-  tag: (id, userId) => db.tag.count({ where: { id, userId } }),
-  journalEntry: (id, userId) => db.journalEntry.count({ where: { id, userId } }),
-  document: (id, userId) => db.document.count({ where: { id, userId } }),
-  recurrenceRule: (id, userId) => db.recurrenceRule.count({ where: { id, userId } }),
+const COUNTERS: Record<OwnedModel, (c: DbClient, id: string, userId: string) => Promise<number>> = {
+  project: (c, id, userId) => c.project.count({ where: { id, userId } }),
+  task: (c, id, userId) => c.task.count({ where: { id, userId } }),
+  note: (c, id, userId) => c.note.count({ where: { id, userId } }),
+  noteFolder: (c, id, userId) => c.noteFolder.count({ where: { id, userId } }),
+  goal: (c, id, userId) => c.goal.count({ where: { id, userId } }),
+  habit: (c, id, userId) => c.habit.count({ where: { id, userId } }),
+  event: (c, id, userId) => c.event.count({ where: { id, userId } }),
+  expense: (c, id, userId) => c.expense.count({ where: { id, userId } }),
+  expenseCategory: (c, id, userId) => c.expenseCategory.count({ where: { id, userId } }),
+  budget: (c, id, userId) => c.budget.count({ where: { id, userId } }),
+  tag: (c, id, userId) => c.tag.count({ where: { id, userId } }),
+  journalEntry: (c, id, userId) => c.journalEntry.count({ where: { id, userId } }),
+  document: (c, id, userId) => c.document.count({ where: { id, userId } }),
+  recurrenceRule: (c, id, userId) => c.recurrenceRule.count({ where: { id, userId } }),
 };
 
 /**
@@ -90,8 +98,9 @@ export async function requireOwned(
   model: OwnedModel,
   id: string,
   userId: string,
+  client: DbClient = db,
 ): Promise<void> {
-  const count = await COUNTERS[model](id, userId);
+  const count = await COUNTERS[model](client, id, userId);
   if (count === 0) throw notFound(LABELS[model]);
 }
 
@@ -100,9 +109,10 @@ export async function requireOwnedIfPresent(
   model: OwnedModel,
   id: string | null | undefined,
   userId: string,
+  client: DbClient = db,
 ): Promise<void> {
   if (id === null || id === undefined) return;
-  await requireOwned(model, id, userId);
+  await requireOwned(model, id, userId, client);
 }
 
 /**
@@ -114,29 +124,28 @@ export async function requireAllOwned(
   model: OwnedModel,
   ids: readonly string[],
   userId: string,
+  client: DbClient = db,
 ): Promise<void> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return;
 
-  const found = await COUNT_MANY[model](unique, userId);
+  const found = await COUNT_MANY[model](client, unique, userId);
   if (found !== unique.length) throw notFound(LABELS[model]);
 }
 
-const COUNT_MANY: Record<OwnedModel, (ids: string[], userId: string) => Promise<number>> = {
-  project: (ids, userId) => db.project.count({ where: { id: { in: ids }, userId } }),
-  task: (ids, userId) => db.task.count({ where: { id: { in: ids }, userId } }),
-  note: (ids, userId) => db.note.count({ where: { id: { in: ids }, userId } }),
-  noteFolder: (ids, userId) => db.noteFolder.count({ where: { id: { in: ids }, userId } }),
-  goal: (ids, userId) => db.goal.count({ where: { id: { in: ids }, userId } }),
-  habit: (ids, userId) => db.habit.count({ where: { id: { in: ids }, userId } }),
-  event: (ids, userId) => db.event.count({ where: { id: { in: ids }, userId } }),
-  expense: (ids, userId) => db.expense.count({ where: { id: { in: ids }, userId } }),
-  expenseCategory: (ids, userId) =>
-    db.expenseCategory.count({ where: { id: { in: ids }, userId } }),
-  budget: (ids, userId) => db.budget.count({ where: { id: { in: ids }, userId } }),
-  tag: (ids, userId) => db.tag.count({ where: { id: { in: ids }, userId } }),
-  journalEntry: (ids, userId) => db.journalEntry.count({ where: { id: { in: ids }, userId } }),
-  document: (ids, userId) => db.document.count({ where: { id: { in: ids }, userId } }),
-  recurrenceRule: (ids, userId) =>
-    db.recurrenceRule.count({ where: { id: { in: ids }, userId } }),
+const COUNT_MANY: Record<OwnedModel, (c: DbClient, ids: string[], userId: string) => Promise<number>> = {
+  project: (c, ids, userId) => c.project.count({ where: { id: { in: ids }, userId } }),
+  task: (c, ids, userId) => c.task.count({ where: { id: { in: ids }, userId } }),
+  note: (c, ids, userId) => c.note.count({ where: { id: { in: ids }, userId } }),
+  noteFolder: (c, ids, userId) => c.noteFolder.count({ where: { id: { in: ids }, userId } }),
+  goal: (c, ids, userId) => c.goal.count({ where: { id: { in: ids }, userId } }),
+  habit: (c, ids, userId) => c.habit.count({ where: { id: { in: ids }, userId } }),
+  event: (c, ids, userId) => c.event.count({ where: { id: { in: ids }, userId } }),
+  expense: (c, ids, userId) => c.expense.count({ where: { id: { in: ids }, userId } }),
+  expenseCategory: (c, ids, userId) => c.expenseCategory.count({ where: { id: { in: ids }, userId } }),
+  budget: (c, ids, userId) => c.budget.count({ where: { id: { in: ids }, userId } }),
+  tag: (c, ids, userId) => c.tag.count({ where: { id: { in: ids }, userId } }),
+  journalEntry: (c, ids, userId) => c.journalEntry.count({ where: { id: { in: ids }, userId } }),
+  document: (c, ids, userId) => c.document.count({ where: { id: { in: ids }, userId } }),
+  recurrenceRule: (c, ids, userId) => c.recurrenceRule.count({ where: { id: { in: ids }, userId } }),
 };

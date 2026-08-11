@@ -60,11 +60,19 @@ export async function recordAudit(input: AuditInput): Promise<void> {
   }
 }
 
-/** Pulls client metadata off a request without trusting it for anything but logging. */
+/**
+ * Client metadata for the audit trail.
+ *
+ * Both values are client-controlled and are recorded for investigation only —
+ * never used for a security decision. The recorded IP is marked unverified
+ * unless a trusted proxy is configured, so nobody later mistakes it for proof.
+ */
 export function requestMeta(request: Request) {
+  const trusted = process.env.TRUST_PROXY_HEADERS === "true";
   const forwarded = request.headers.get("x-forwarded-for");
+  const raw = forwarded?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip");
   return {
-    ip: forwarded?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip"),
+    ip: raw ? (trusted ? raw : `unverified:${raw}`) : null,
     userAgent: request.headers.get("user-agent"),
   };
 }
