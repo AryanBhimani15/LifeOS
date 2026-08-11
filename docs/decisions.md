@@ -218,3 +218,62 @@ day and broke streaks. **Followed.** Day boundaries are computed through `Intl`
 rather than a fixed offset, because offsets change with DST and a fixed one
 breaks twice a year. Both sides of the `Europe/London` transition are asserted
 in the test suite.
+
+---
+
+## ADR-008 — Expo/React Native for the mobile companion, not native Swift
+
+**Decision.** Expo (React Native) in `mobile/`, talking to the existing API.
+
+**Gemini was consulted and recommended native Swift/SwiftUI.** Its reasoning was
+good: a single-screen voice app is ~200 lines of SwiftUI with `SFSpeechRecognizer`
+and no third-party dependencies, whereas `expo-speech-recognition` needs a custom
+development build that slows iteration. It also correctly named the failure mode
+either way — an unhandled `AVAudioSession` interruption leaving the mic dead.
+
+**Rejected, for a reason Gemini could not know.** Swift cannot be built, run or
+tested in the environment this was developed in. There is no Xcode automation, no
+compile step, no test run. Choosing Swift meant shipping several hundred lines
+verified by nothing but confidence. With Expo the app typechecks, lints, bundles
+for iOS through Hermes, and its API client is covered by integration tests
+against the live server. Verifiability beat ergonomics.
+
+Two supporting reasons:
+
+- **Type sharing is worth more here than Gemini allowed.** The plan receipt is a
+  discriminated union that is still changing. Hand-mirroring it into Swift
+  `Decodable` structs is precisely where drift appears, and drift in that type
+  means the confirmation screen misrepresents what is about to happen.
+- **The cost of being wrong is low.** The requirement was that a future native
+  client can use the same API. Since the contract is plain HTTP and JSON with
+  bearer auth, that holds regardless of what the first client is written in.
+  Choosing Expo now does not close the Swift door.
+
+**Accepted from Gemini unchanged:**
+
+- **Transcribe on-device, send text.** Streaming audio would spend the AI quota
+  on transcription rather than understanding, and put a recording of a personal
+  task list on the wire. Only the final transcript is sent, because firing a
+  request per interim result would exhaust 20 requests/minute in one sentence.
+- **`Vary: Authorization, Cookie` on every response.** Without it a cache keyed
+  on URL can serve one user's response to another, since a bearer-authenticated
+  request looks identical to an anonymous one to an intermediary that ignores the
+  header. This would have been missed.
+- **No refresh-token rotation.** Its failure case is convincing: the server
+  rotates, the response drops on a flaky link, and the client holds an
+  invalidated token — permanently logged out with no recovery. For a personal
+  app, per-device revocation covers the realistic threat.
+- **Revoke only the calling device**, so signing out on the phone does not end
+  the browser session.
+
+**Partially rejected:** Gemini proposed allowing execution of expired plans
+within ~30 minutes to survive a user confirming after a signal drop. That defeats
+why expiry exists — the ids a plan resolved may no longer be the rows the user
+was shown. The client re-plans from the stored transcript instead, which recovers
+the same situation without weakening the guarantee.
+
+**Sharpened:** Gemini flagged duplicate execution from a retried request. That was
+already impossible, because the plan is claimed with a conditional UPDATE. The
+real defect was subtler — a retry after a dropped response reported an *error*
+for work that had succeeded. So idempotency here means replaying the stored
+result, not preventing the mutation.

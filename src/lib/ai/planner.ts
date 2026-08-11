@@ -172,9 +172,15 @@ export async function planCommand(
   const parsed = aiPlanEnvelope.safeParse(extractJson(response.text));
   if (!parsed.success) {
     // The model produced something outside the contract. Nothing runs.
-    console.error("[ai] plan failed schema validation", {
-      issues: parsed.error.issues.slice(0, 5),
-    });
+    // Flat string, not an object: Next's dev logger renders nested objects as
+    // "{}", which makes a rejected plan impossible to diagnose.
+    const issues = parsed.error.issues
+      .slice(0, 5)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join(" | ");
+    console.error(
+      `[ai] plan failed schema validation — ${issues}\nraw: ${response.text.slice(0, 600)}`,
+    );
     throw aiUnavailable("The AI produced a plan that did not match the allowed actions.");
   }
 

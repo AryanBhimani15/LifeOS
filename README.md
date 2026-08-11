@@ -4,11 +4,12 @@ An AI-powered personal command center: tasks, projects, calendar, goals, habits,
 notes, journal, and expenses in one application, with a natural-language command
 bar that turns a sentence into structured, confirmed actions.
 
-> **Status: backend complete and tested; web UI not yet built.** The data model,
-> API, authentication, authorization, and AI command pipeline are implemented and
-> covered by 63 passing tests. There is no dashboard or task board yet — the app
-> is currently driven through its HTTP API. See [Status](#status) for the honest
-> breakdown.
+> **Status: web app and mobile companion working; several sections still stubs.**
+> Auth, the Today view, the Kanban board and the AI command centre all work end to
+> end against Postgres, covered by 79 server tests plus browser and API contract
+> suites. Projects, Calendar, Goals, Habits, Notes, Journal and Money have schema
+> and pages but no APIs yet, and say so on screen rather than showing sample data.
+> See [Status](#status) for the honest breakdown.
 
 ## What works today
 
@@ -64,6 +65,22 @@ Every variable is documented in [`.env.example`](.env.example). Required:
 (AI features return a clear error without it), `AI_MODEL`,
 `TRUST_PROXY_HEADERS`.
 
+## Mobile companion
+
+`mobile/` holds a voice-first iPhone app: launch, tap the mic, speak, review the
+plan, confirm. It is deliberately not a small dashboard — it shares the web app's
+database, authentication and AI command pipeline, and contains no business logic
+of its own.
+
+```bash
+cd ~/LifeOS && npm run dev        # the backend
+cd mobile && npm start            # the app
+```
+
+See [docs/mobile.md](docs/mobile.md) for the API contract, the token auth model,
+and the honest list of what does not work yet (push delivery needs an Apple
+Developer account; nothing has run on physical hardware).
+
 ## Documentation
 
 | Document | Contents |
@@ -73,6 +90,7 @@ Every variable is documented in [`.env.example`](.env.example). Required:
 | [docs/api.md](docs/api.md) | Endpoints, payloads, error codes |
 | [docs/security.md](docs/security.md) | Controls, verification, known limitations |
 | [docs/decisions.md](docs/decisions.md) | Architecture decisions and why |
+| [docs/mobile.md](docs/mobile.md) | Mobile companion: contract, auth, limitations |
 | [docs/development.md](docs/development.md) | Local setup, testing, conventions |
 
 ## The AI command centre
@@ -117,15 +135,20 @@ plan and ask a question rather than guessing.
 - AI command centre (plan, resolve, confirm, execute, query)
 - Audit logging, money handling, timezone-correct dates
 
+- Web UI — login/register, Today, Kanban board with drag-and-drop, ⌘K command bar
+- Mobile companion — voice capture, plan receipt, confirm (see docs/mobile.md)
+- Token auth for native clients, alongside cookie sessions for the browser
+
 **Not yet built**
 
-- Web UI — no dashboard, task board, calendar, or command bar interface
 - API routes for projects, notes, goals, habits, journal, expenses, documents
-  (the schema and repositories patterns exist; the routes do not)
+  (schema and the repository pattern exist; those routes do not). Their pages
+  render an explicit "not built yet" state rather than fake rows.
 - Recurrence materialisation job
 - Analytics endpoints and charts
 - Global search endpoint
-- Daily brief generation
+- Push notification delivery (registration works; APNs credentials do not exist)
+- Nothing has been run on physical iOS hardware
 
 ## Licence
 
