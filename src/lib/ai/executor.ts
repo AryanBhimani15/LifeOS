@@ -3,7 +3,8 @@ import { requireOwned, type DbClient } from "@/lib/authz";
 import { badRequest, confirmationRequired, notFound } from "@/lib/errors";
 import { recordAudit } from "@/lib/audit";
 import { assertSafeMinorUnits, toMinorUnits } from "@/lib/money";
-import { parseCalendarDate } from "@/lib/dates";
+import { parseCalendarDate, todayDateInZone } from "@/lib/dates";
+import { answerQuery, type QueryAnswer } from "./queries";
 import { resolveOrCreateCategory, resolveOrCreateTags } from "./resolver";
 import { assertPlanUsable, type ResolvedAction } from "./planner";
 import { planIsDestructive } from "./actions";
@@ -36,6 +37,8 @@ export interface ExecutionOutcome {
   executed: number;
   created: { type: string; id: string; label: string }[];
   notes: string[];
+  /** Results for read-only `query` actions, answered from the database. */
+  answers: QueryAnswer[];
 }
 
 /** Interactive transactions default to 5s; a plan may perform many writes. */
@@ -72,6 +75,12 @@ export async function executePlan(
     });
   }
 
+  const settings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { timezone: true },
+  });
+  const timeZone = settings?.timezone ?? "UTC";
+
   const outcome = await db.$transaction(async (tx) => {
     // Atomic claim. The conditional update locks the row, so a concurrent
     // execute blocks here and then matches zero rows once we commit.
@@ -83,9 +92,9 @@ export async function executePlan(
       throw badRequest("That plan has already been dealt with.");
     }
 
-    const result: ExecutionOutcome = { executed: 0, created: [], notes: [] };
+    const result: ExecutionOutcome = { executed: 0, created: [], notes: [], answers: [] };
     for (const action of actions) {
-      await runAction(tx, userId, action, result);
+      await runAction(tx, userId, action, result, timeZone);
     }
 
     await tx.aiCommandPlan.update({
@@ -95,6 +104,14 @@ export async function executePlan(
 
     return result;
   }, TRANSACTION_OPTIONS);
+
+  // Read-only questions are answered AFTER the transaction commits, so they see
+  // the writes this plan just made rather than the pre-transaction snapshot.
+  for (const action of actions) {
+    if (action.type === "query") {
+      outcome.answers.push(await answerQuery(userId, action.kind));
+    }
+  }
 
   await recordAudit({
     userId,
@@ -113,6 +130,7 @@ async function runAction(
   userId: string,
   action: ResolvedAction,
   outcome: ExecutionOutcome,
+  timeZone: string,
 ): Promise<void> {
   switch (action.type) {
     case "create_task": {
@@ -256,7 +274,7 @@ async function runAction(
 
     case "complete_habit": {
       await requireOwned("habit", action.habitId, userId, tx);
-      const on = parseCalendarDate(action.on) ?? todayUtcDate();
+      const on = parseCalendarDate(action.on) ?? todayDateInZone(timeZone);
       // Completing twice in a day is a no-op, not an error.
       await tx.habitCompletion.upsert({
         where: { habitId_completedOn: { habitId: action.habitId, completedOn: on } },
@@ -289,7 +307,15 @@ async function runAction(
       // Currency drives the minor-unit exponent: JPY has none, BHD has three.
       // Converting every amount as if it were USD stores the wrong number.
       const amountMinor = toMinorUnits(action.amount, currency);
-      assertSafeMinorUnits(amountMinor);
+      try {
+        assertSafeMinorUnits(amountMinor);
+      } catch {
+        // A plain Error here would surface as a generic 500 and leave the plan
+        // permanently unexecutable with no explanation.
+        throw badRequest(
+          `That amount is too large to record in ${currency}. Please split it into smaller entries.`,
+        );
+      }
 
       const expense = await tx.expense.create({
         data: {
@@ -298,7 +324,7 @@ async function runAction(
           description: action.description,
           amountMinor,
           currency,
-          spentOn: parseCalendarDate(action.spentOn) ?? todayUtcDate(),
+          spentOn: parseCalendarDate(action.spentOn) ?? todayDateInZone(timeZone),
         },
         select: { id: true, description: true },
       });
@@ -308,8 +334,7 @@ async function runAction(
     }
 
     case "query":
-      // Read-only: answered by the caller from the database, nothing to execute.
-      outcome.notes.push(`Answered question: ${action.kind}`);
+      // Answered after the transaction commits — see executePlan.
       return;
   }
 }
@@ -343,10 +368,4 @@ function describe(action: ResolvedAction) {
   return action.type === "delete_task"
     ? { type: action.type, label: action.taskTitle }
     : { type: action.type, label: "" };
-}
-
-/** Midnight UTC for @db.Date columns, which carry no time component. */
-function todayUtcDate() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }

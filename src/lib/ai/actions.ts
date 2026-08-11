@@ -147,7 +147,15 @@ export const logExpenseAction = z.object({
   description: z.string().trim().min(1).max(200),
   /** Major units as written by the user; converted to integer minor units on execute. */
   amount: z.number().nonnegative().max(10_000_000),
-  currency: z.string().length(3).optional(),
+  /**
+   * `length(3)` alone accepts "!!!", which would be stored and then break every
+   * downstream Intl.NumberFormat call. Restrict to the ISO-4217 letter shape.
+   */
+  currency: z
+    .string()
+    .regex(/^[A-Za-z]{3}$/, "Currency must be a 3-letter code")
+    .transform((c) => c.toUpperCase())
+    .optional(),
   categoryName: z.string().trim().max(60).optional(),
   spentOn: isoDate.optional(),
 });

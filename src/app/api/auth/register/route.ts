@@ -27,8 +27,14 @@ function isUniqueViolation(error: unknown): boolean {
  */
 export const POST = defineRoute({
   auth: false,
-  rateLimit: RATE_LIMITS.register,
+  // Coarse shared bucket first, then a per-email limit once the body is parsed.
+  // The shared bucket alone would let a few junk requests block all signups.
+  rateLimit: RATE_LIMITS.anonymous,
   body: registerSchema,
+  identityRateLimit: {
+    options: RATE_LIMITS.registerIdentity,
+    key: (body) => body.email,
+  },
   handler: async ({ body, request }) => {
     const { name, email, password, timezone } = body;
 

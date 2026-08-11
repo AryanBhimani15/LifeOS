@@ -88,7 +88,16 @@ export async function consumeRateLimit(
 /** Tuned per endpoint class; AI calls cost real money and quota, so they are tightest. */
 export const RATE_LIMITS = {
   auth: { limit: 8, windowMs: 15 * 60 * 1000 },
-  register: { limit: 5, windowMs: 60 * 60 * 1000 },
+  /**
+   * Coarse bucket shared by all anonymous callers when forwarded headers are
+   * not trusted. Deliberately generous: it exists to bound total abuse, not to
+   * throttle individuals. A tight shared limit is a denial-of-service on
+   * everyone else — see `registerIdentity` for the control that actually stops
+   * targeted abuse.
+   */
+  anonymous: { limit: 240, windowMs: 60 * 60 * 1000 },
+  /** Per-email signup limit, applied after the body is parsed. */
+  registerIdentity: { limit: 5, windowMs: 60 * 60 * 1000 },
   read: { limit: 300, windowMs: 60 * 1000 },
   write: { limit: 120, windowMs: 60 * 1000 },
   ai: { limit: 20, windowMs: 60 * 60 * 1000 },

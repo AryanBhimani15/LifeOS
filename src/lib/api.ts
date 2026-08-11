@@ -44,6 +44,19 @@ interface RouteOptions<TBody, TQuery> {
   /** Defaults to true. Only auth-free endpoints (register) may set this false. */
   auth?: boolean;
   rateLimit?: RateLimitOptions;
+  /**
+   * A second, finer limit applied AFTER the body is validated, keyed on
+   * something inside it (an email, say).
+   *
+   * Anonymous endpoints cannot identify a caller before parsing, and the coarse
+   * pre-parse bucket is shared, so it must stay generous or a handful of junk
+   * requests locks out every legitimate one. This is where the real per-actor
+   * limit belongs.
+   */
+  identityRateLimit?: {
+    options: RateLimitOptions;
+    key: (body: TBody) => string | null;
+  };
   body?: z.ZodType<TBody>;
   query?: z.ZodType<TQuery>;
   handler: (args: HandlerArgs<TBody, TQuery>) => Promise<Response | unknown>;
@@ -108,12 +121,12 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
         userId = session.user.id;
       }
 
+      const path = new URL(request.url).pathname;
+
       if (options.rateLimit) {
-        // Authenticated traffic is limited per user; anonymous traffic per IP.
-        // Keying anonymous requests by IP alone would let one user behind a NAT
-        // exhaust the budget for everyone sharing it, which is why the
-        // authenticated key is preferred whenever it exists.
-        const key = `${new URL(request.url).pathname}:${userId || clientIp(request)}`;
+        // Authenticated traffic is keyed per user, which is both accurate and
+        // unspoofable. Anonymous traffic falls back to the shared bucket.
+        const key = `${path}:${userId || clientIp(request)}`;
         const result = await consumeRateLimit(key, options.rateLimit);
         if (!result.allowed) throw rateLimited(result.retryAfterSeconds);
       }
@@ -129,6 +142,17 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
         const parsed = options.body.safeParse(raw);
         if (!parsed.success) throw validationFailed(z.treeifyError(parsed.error));
         body = parsed.data;
+      }
+
+      if (options.identityRateLimit) {
+        const identity = options.identityRateLimit.key(body);
+        if (identity) {
+          const result = await consumeRateLimit(
+            `${path}:id:${identity}`,
+            options.identityRateLimit.options,
+          );
+          if (!result.allowed) throw rateLimited(result.retryAfterSeconds);
+        }
       }
 
       let query = undefined as TQuery;
