@@ -9,6 +9,7 @@ import {
   validationFailed,
 } from "@/lib/errors";
 import { consumeRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
+import { verifyAccessToken } from "@/lib/mobile-auth";
 
 /**
  * The single entry point for every API route.
@@ -22,6 +23,11 @@ import { consumeRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
  * client-safe messages and are returned as-is, while anything else becomes a
  * generic 500. A Prisma error, a stack trace, or a connection string can never
  * reach a client through this path.
+ *
+ * Two authentication methods are accepted: an Auth.js session cookie (web) and
+ * an `Authorization: Bearer` access token (mobile). Both resolve to a plain
+ * userId before the handler runs, so nothing downstream branches on which was
+ * used and there is only one authorization path to audit.
  */
 
 export function json(data: unknown, init?: ResponseInit) {
@@ -32,9 +38,13 @@ interface RouteContext {
   params: Promise<Record<string, string | string[]>>;
 }
 
+export type AuthMethod = "cookie" | "bearer" | "none";
+
 interface HandlerArgs<TBody, TQuery> {
   request: Request;
   userId: string;
+  /** Which credential proved the identity. For auditing, never for access decisions. */
+  authMethod: AuthMethod;
   body: TBody;
   query: TQuery;
   params: Record<string, string | string[]>;
@@ -83,6 +93,34 @@ function clientIp(request: Request): string {
   return forwarded?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
 }
 
+/**
+ * Responses vary by BOTH credentials.
+ *
+ * Without this, a cache keyed only on URL can serve one user's response to
+ * another: a mobile request authenticated by header looks identical to an
+ * unauthenticated one to any intermediary that ignores the Authorization header.
+ */
+const VARY = "Authorization, Cookie";
+
+function withVary(response: Response): Response {
+  response.headers.set("Vary", VARY);
+  return response;
+}
+
+/** Resolves the caller from a bearer token, falling back to a session cookie. */
+async function resolveUser(request: Request): Promise<{ userId: string; method: AuthMethod }> {
+  const header = request.headers.get("authorization");
+  if (header?.toLowerCase().startsWith("bearer ")) {
+    const claims = await verifyAccessToken(header.slice(7).trim());
+    if (!claims) throw unauthenticated("Your session has expired. Please sign in again.");
+    return { userId: claims.userId, method: "bearer" };
+  }
+
+  const session = await auth();
+  if (!session?.user?.id) throw unauthenticated();
+  return { userId: session.user.id, method: "cookie" };
+}
+
 function errorResponse(error: AppError) {
   return Response.json(
     {
@@ -114,11 +152,12 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
   return async function handle(request: Request, context?: RouteContext) {
     try {
       let userId = "";
+      let authMethod: AuthMethod = "none";
 
       if (requireAuth) {
-        const session = await auth();
-        if (!session?.user?.id) throw unauthenticated();
-        userId = session.user.id;
+        const resolved = await resolveUser(request);
+        userId = resolved.userId;
+        authMethod = resolved.method;
       }
 
       const path = new URL(request.url).pathname;
@@ -166,19 +205,23 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
       // Next.js 16: route params are a Promise and must be awaited.
       const params = context ? await context.params : {};
 
-      const result = await options.handler({ request, userId, body, query, params });
-      return result instanceof Response ? result : json(result ?? { ok: true });
+      const result = await options.handler({ request, userId, authMethod, body, query, params });
+      return withVary(result instanceof Response ? result : json(result ?? { ok: true }));
     } catch (error) {
-      if (error instanceof AppError) return errorResponse(error);
+      if (error instanceof AppError) return withVary(errorResponse(error));
 
       // Anything unrecognised is a bug. Log the detail server-side; tell the
       // client nothing beyond "something went wrong".
-      console.error("[api] unhandled error", {
-        url: request.url,
-        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      return errorResponse(internal());
+      //
+      // Logged as a flat string rather than an object: Next's dev logger
+      // serialises nested objects to "{}", which turns every 500 into an
+      // unreadable dead end.
+      const detail =
+        error instanceof Error
+          ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+          : `non-Error thrown: ${JSON.stringify(error)}`;
+      console.error(`[api] unhandled error at ${new URL(request.url).pathname}\n${detail}`);
+      return withVary(errorResponse(internal()));
     }
   };
 }

@@ -48,6 +48,7 @@ export async function executePlan(
   userId: string,
   planId: string,
   confirmed: boolean,
+  idempotencyKey?: string,
 ): Promise<ExecutionOutcome> {
   const plan = await db.aiCommandPlan.findFirst({
     where: { id: planId, userId },
@@ -58,9 +59,24 @@ export async function executePlan(
       needsConfirm: true,
       summary: true,
       actions: true,
+      result: true,
+      idempotencyKey: true,
     },
   });
   if (!plan) throw notFound("Plan");
+
+  // A retry after a dropped response: the work already happened, so replay the
+  // stored outcome rather than reporting an error for a request that succeeded.
+  // The mutation itself was never at risk — the conditional claim below makes
+  // double execution impossible — but the client cannot know that.
+  if (
+    idempotencyKey &&
+    plan.status === "EXECUTED" &&
+    plan.idempotencyKey === idempotencyKey &&
+    plan.result
+  ) {
+    return plan.result as unknown as ExecutionOutcome;
+  }
 
   assertPlanUsable(plan);
 
@@ -86,7 +102,7 @@ export async function executePlan(
     // execute blocks here and then matches zero rows once we commit.
     const claimed = await tx.aiCommandPlan.updateMany({
       where: { id: plan.id, userId, status: "PENDING", expiresAt: { gt: new Date() } },
-      data: { status: "EXECUTED", executedAt: new Date() },
+      data: { status: "EXECUTED", executedAt: new Date(), idempotencyKey: idempotencyKey ?? null },
     });
     if (claimed.count === 0) {
       throw badRequest("That plan has already been dealt with.");

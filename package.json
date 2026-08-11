@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "db:migrate:test": "dotenv -e .env -- sh -c \"DATABASE_URL=$DATABASE_URL_TEST prisma migrate deploy\"",
-    "test:e2e": "node scripts/smoke-e2e.mjs"
+    "test:e2e": "node scripts/smoke-e2e.mjs",
+    "test:contract": "node scripts/mobile-contract-test.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
