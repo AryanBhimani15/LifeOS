@@ -1,36 +1,132 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LifeOS
 
-## Getting Started
+An AI-powered personal command center: tasks, projects, calendar, goals, habits,
+notes, journal, and expenses in one application, with a natural-language command
+bar that turns a sentence into structured, confirmed actions.
 
-First, run the development server:
+> **Status: backend complete and tested; web UI not yet built.** The data model,
+> API, authentication, authorization, and AI command pipeline are implemented and
+> covered by 63 passing tests. There is no dashboard or task board yet — the app
+> is currently driven through its HTTP API. See [Status](#status) for the honest
+> breakdown.
+
+## What works today
+
+- **Authentication** — registration, sign-in, sessions, protected routes.
+- **Cross-user isolation** — enforced in two independent layers and verified by
+  mutation testing.
+- **Tasks** — full CRUD, subtasks, recurrence rules, tags, projects, filtering,
+  cursor pagination, and fractional-rank ordering for drag-and-drop.
+- **AI command centre** — natural language becomes a validated, resolved plan;
+  destructive actions require server-enforced confirmation; read-only questions
+  are answered from the database.
+- **Database integrity** — 35 tables with foreign keys, cascade rules, CHECK
+  constraints, trigram search indexes, and partial indexes for dashboard queries.
+
+## Quick start
+
+Requires **Node 20+** and **PostgreSQL 14+** running locally.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <your-remote> LifeOS && cd LifeOS
+npm install
+
+cp .env.example .env
+# Fill in DATABASE_URL, DATABASE_URL_TEST, and AUTH_SECRET.
+# Generate a secret with: openssl rand -base64 32
+
+createdb lifeos_dev
+createdb lifeos_test
+
+npm run db:migrate        # apply migrations to the dev database
+npm run db:migrate:test   # and to the test database
+
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Scripts
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Production build |
+| `npm test` | Full test suite (needs `lifeos_test`) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm run db:migrate` | Apply migrations to dev |
+| `npm run db:migrate:test` | Apply migrations to the test database |
+| `npm run db:studio` | Prisma Studio |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment variables
 
-## Learn More
+Every variable is documented in [`.env.example`](.env.example). Required:
+`DATABASE_URL`, `DATABASE_URL_TEST`, `AUTH_SECRET`. Optional: `GEMINI_API_KEY`
+(AI features return a clear error without it), `AI_MODEL`,
+`TRUST_PROXY_HEADERS`.
 
-To learn more about Next.js, take a look at the following resources:
+## Documentation
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Document | Contents |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Layers, request lifecycle, module map |
+| [docs/database.md](docs/database.md) | Schema, relationships, indexes, constraints |
+| [docs/api.md](docs/api.md) | Endpoints, payloads, error codes |
+| [docs/security.md](docs/security.md) | Controls, verification, known limitations |
+| [docs/decisions.md](docs/decisions.md) | Architecture decisions and why |
+| [docs/development.md](docs/development.md) | Local setup, testing, conventions |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## The AI command centre
 
-## Deploy on Vercel
+The design principle is that the model is an untrusted input source.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+"finish my Azure assignment tomorrow at 6pm"
+        │
+        ▼
+   Gemini parses ──► JSON envelope
+        │
+        ▼
+   Zod validates ──► closed union of named actions; anything else is discarded
+        │
+        ▼
+   Server resolves ──► text descriptors become ids, scoped to YOUR rows only
+        │
+        ▼
+   Plan persisted ──► nothing has mutated yet
+        │
+        ▼
+   Confirmation ──► destructive plans need `confirmed: true` on a second request
+        │
+        ▼
+   Execute ──► one transaction, claimed atomically, exactly once
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The model cannot emit SQL, and it cannot emit database ids at all — it has no
+vocabulary for referring to another user's row. Ambiguous references stop the
+plan and ask a question rather than guessing.
+
+## Status
+
+**Implemented and tested**
+
+- Prisma schema, migrations, integrity constraints
+- Auth (registration, login, sessions, route protection)
+- Request pipeline (auth, rate limiting, validation, error mapping)
+- Ownership enforcement and cross-user isolation
+- Tasks API
+- AI command centre (plan, resolve, confirm, execute, query)
+- Audit logging, money handling, timezone-correct dates
+
+**Not yet built**
+
+- Web UI — no dashboard, task board, calendar, or command bar interface
+- API routes for projects, notes, goals, habits, journal, expenses, documents
+  (the schema and repositories patterns exist; the routes do not)
+- Recurrence materialisation job
+- Analytics endpoints and charts
+- Global search endpoint
+- Daily brief generation
+
+## Licence
+
+Unlicensed personal project.
