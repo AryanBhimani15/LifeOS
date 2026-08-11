@@ -49,10 +49,13 @@ function detail(action: PlanAction): string | null {
       }),
     );
   }
-  if (action.priority && action.priority !== "MEDIUM") bits.push(action.priority.toLowerCase());
+  if (action.priority && action.priority !== "MEDIUM")
+    bits.push(action.priority.toLowerCase());
   if (action.subtasks?.length) bits.push(`${action.subtasks.length} subtasks`);
-  if (action.milestones?.length) bits.push(`${action.milestones.length} milestones`);
-  if (action.amount !== undefined) bits.push(`${action.currency ?? ""} ${action.amount}`.trim());
+  if (action.milestones?.length)
+    bits.push(`${action.milestones.length} milestones`);
+  if (action.amount !== undefined)
+    bits.push(`${action.currency ?? ""} ${action.amount}`.trim());
   return bits.length ? bits.join(" · ") : null;
 }
 
@@ -76,8 +79,15 @@ export function PlanReceipt({
   // The server declined to act. Show the question rather than a fake result.
   if (!plan.planId) {
     return (
-      <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-        <Text style={[styles.eyebrow, { color: palette.textFaint }]}>NEEDS CLARIFICATION</Text>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: palette.surface, borderColor: palette.border },
+        ]}
+      >
+        <Text style={[styles.eyebrow, { color: palette.textFaint }]}>
+          NEEDS CLARIFICATION
+        </Text>
         <Text style={[styles.summary, { color: palette.text }]}>
           {plan.clarification ?? "I couldn't turn that into anything."}
         </Text>
@@ -89,8 +99,11 @@ export function PlanReceipt({
             </Text>
             {amb.candidates.map((c) => (
               <Pressable
+                accessibilityRole="button"
                 key={c.id}
-                onPress={() => onRetry?.(`${amb.query} — the one called "${c.label}"`)}
+                onPress={() =>
+                  onRetry?.(`${amb.query} — the one called "${c.label}"`)
+                }
                 style={[styles.choice, { backgroundColor: palette.surfaceAlt }]}
               >
                 <Text style={{ color: palette.text }}>{c.label}</Text>
@@ -99,8 +112,14 @@ export function PlanReceipt({
           </View>
         ))}
 
-        <Pressable onPress={onCancel} style={[styles.secondary, { borderColor: palette.border }]}>
-          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>Try again</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={[styles.secondary, { borderColor: palette.border }]}
+        >
+          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>
+            Try again
+          </Text>
         </Pressable>
       </View>
     );
@@ -109,38 +128,73 @@ export function PlanReceipt({
   // Read-only answers, computed by the server from real rows.
   if (answers?.length) {
     return (
-      <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: palette.surface, borderColor: palette.border },
+        ]}
+      >
         {answers.map((answer) => (
           <View key={answer.kind} style={styles.block}>
             <Text style={[styles.eyebrow, { color: palette.textFaint }]}>
               {answer.kind.replace(/_/g, " ").toUpperCase()}
             </Text>
-            <Text style={[styles.summary, { color: palette.text }]}>{answer.headline}</Text>
+            <Text style={[styles.summary, { color: palette.text }]}>
+              {answer.headline}
+            </Text>
             {answer.items.slice(0, 8).map((item) => (
-              <View key={item.id} style={[styles.row, { backgroundColor: palette.surfaceAlt }]}>
-                <Text style={[styles.rowLabel, { color: palette.text }]}>{item.label}</Text>
+              <View
+                key={item.id}
+                style={[styles.row, { backgroundColor: palette.surfaceAlt }]}
+              >
+                <Text style={[styles.rowLabel, { color: palette.text }]}>
+                  {item.label}
+                </Text>
                 {item.detail && (
-                  <Text style={[styles.caption, { color: palette.textMuted }]}>{item.detail}</Text>
+                  <Text style={[styles.caption, { color: palette.textMuted }]}>
+                    {item.detail}
+                  </Text>
                 )}
               </View>
             ))}
           </View>
         ))}
-        <Pressable onPress={onCancel} style={[styles.secondary, { borderColor: palette.border }]}>
-          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>Done</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={[styles.secondary, { borderColor: palette.border }]}
+        >
+          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>
+            Done
+          </Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-      <Text style={[styles.eyebrow, { color: plan.needsConfirm ? palette.danger : palette.textFaint }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: palette.surface, borderColor: palette.border },
+      ]}
+    >
+      <Text
+        style={[
+          styles.eyebrow,
+          { color: plan.needsConfirm ? palette.danger : palette.textFaint },
+        ]}
+      >
         {plan.needsConfirm ? "CONFIRM TO CONTINUE" : "PLAN"}
       </Text>
-      <Text style={[styles.summary, { color: palette.text }]}>{plan.summary}</Text>
+      <Text style={[styles.summary, { color: palette.text }]}>
+        {plan.summary}
+      </Text>
 
-      <ScrollView style={styles.list} contentContainerStyle={{ gap: spacing.sm }}>
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={{ gap: spacing.sm }}
+      >
         {plan.actions.map((action, index) => {
           const destructive = action.type === "delete_task";
           const sub = detail(action);
@@ -150,7 +204,9 @@ export function PlanReceipt({
               style={[
                 styles.row,
                 {
-                  backgroundColor: destructive ? palette.dangerSoft : palette.surfaceAlt,
+                  backgroundColor: destructive
+                    ? palette.dangerSoft
+                    : palette.surfaceAlt,
                   borderLeftWidth: destructive ? 3 : 0,
                   borderLeftColor: palette.danger,
                 },
@@ -164,10 +220,19 @@ export function PlanReceipt({
               >
                 {VERB[action.type] ?? action.type.replace(/_/g, " ")}
               </Text>
-              <Text style={[styles.rowLabel, { color: destructive ? palette.danger : palette.text }]}>
+              <Text
+                style={[
+                  styles.rowLabel,
+                  { color: destructive ? palette.danger : palette.text },
+                ]}
+              >
                 {label(action)}
               </Text>
-              {sub && <Text style={[styles.caption, { color: palette.textMuted }]}>{sub}</Text>}
+              {sub && (
+                <Text style={[styles.caption, { color: palette.textMuted }]}>
+                  {sub}
+                </Text>
+              )}
             </View>
           );
         })}
@@ -175,20 +240,31 @@ export function PlanReceipt({
 
       <View style={styles.buttons}>
         <Pressable
+          accessibilityRole="button"
           onPress={onCancel}
           disabled={busy}
-          style={[styles.secondary, { borderColor: palette.border, opacity: busy ? 0.5 : 1 }]}
+          style={[
+            styles.secondary,
+            { borderColor: palette.border, opacity: busy ? 0.5 : 1 },
+          ]}
         >
-          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>Cancel</Text>
+          <Text style={{ color: palette.textMuted, fontWeight: "600" }}>
+            Cancel
+          </Text>
         </Pressable>
         <Pressable
+          accessibilityRole="button"
           onPress={onConfirm}
           disabled={busy}
-          accessibilityLabel={plan.needsConfirm ? "Confirm deletion" : "Run this plan"}
+          accessibilityLabel={
+            plan.needsConfirm ? "Confirm deletion" : "Run this plan"
+          }
           style={[
             styles.primary,
             {
-              backgroundColor: plan.needsConfirm ? palette.danger : palette.accent,
+              backgroundColor: plan.needsConfirm
+                ? palette.danger
+                : palette.accent,
               opacity: busy ? 0.6 : 1,
             },
           ]}
@@ -203,7 +279,12 @@ export function PlanReceipt({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
+  card: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
   eyebrow: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
   summary: { fontSize: 16, lineHeight: 22, fontWeight: "500" },
   list: { maxHeight: 260 },
@@ -212,7 +293,11 @@ const styles = StyleSheet.create({
   verb: { fontSize: 10.5, fontWeight: "700", letterSpacing: 0.6 },
   rowLabel: { fontSize: 15, fontWeight: "500" },
   caption: { fontSize: 12.5 },
-  choice: { padding: spacing.sm + 2, borderRadius: radius.md, marginTop: spacing.xs },
+  choice: {
+    padding: spacing.sm + 2,
+    borderRadius: radius.md,
+    marginTop: spacing.xs,
+  },
   buttons: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
   secondary: {
     flex: 1,
@@ -221,6 +306,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
   },
-  primary: { flex: 2, paddingVertical: 13, borderRadius: radius.md, alignItems: "center" },
+  primary: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: radius.md,
+    alignItems: "center",
+  },
   primaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
 });

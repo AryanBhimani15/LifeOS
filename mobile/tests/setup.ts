@@ -17,6 +17,8 @@ vi.mock("expo-secure-store", () => ({
   deleteItemAsync: async (k: string) => void store.delete(k),
 }));
 
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
+
 vi.mock("expo-application", () => ({
   getIosIdForVendorAsync: async () => "install-vitest-000001",
   nativeApplicationVersion: "1.0.0",

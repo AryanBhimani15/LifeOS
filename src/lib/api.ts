@@ -10,6 +10,7 @@ import {
 } from "@/lib/errors";
 import { consumeRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { verifyAccessToken } from "@/lib/mobile-auth";
+import { corsHeaders, resolveAllowedOrigin } from "@/lib/cors";
 
 /**
  * The single entry point for every API route.
@@ -100,10 +101,17 @@ function clientIp(request: Request): string {
  * another: a mobile request authenticated by header looks identical to an
  * unauthenticated one to any intermediary that ignores the Authorization header.
  */
-const VARY = "Authorization, Cookie";
+const VARY = "Authorization, Cookie, Origin";
 
-function withVary(response: Response): Response {
+/**
+ * Applies the Vary header and, for an allowed browser origin, the CORS headers.
+ * Origin is part of Vary so a cache cannot hand a response prepared for one
+ * origin to another.
+ */
+function finalize(response: Response, request: Request): Response {
   response.headers.set("Vary", VARY);
+  const origin = resolveAllowedOrigin(request);
+  for (const [k, v] of Object.entries(corsHeaders(origin))) response.headers.set(k, v);
   return response;
 }
 
@@ -206,9 +214,9 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
       const params = context ? await context.params : {};
 
       const result = await options.handler({ request, userId, authMethod, body, query, params });
-      return withVary(result instanceof Response ? result : json(result ?? { ok: true }));
+      return finalize(result instanceof Response ? result : json(result ?? { ok: true }), request);
     } catch (error) {
-      if (error instanceof AppError) return withVary(errorResponse(error));
+      if (error instanceof AppError) return finalize(errorResponse(error), request);
 
       // Anything unrecognised is a bug. Log the detail server-side; tell the
       // client nothing beyond "something went wrong".
@@ -221,7 +229,7 @@ export function defineRoute<TBody = undefined, TQuery = undefined>(
           ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
           : `non-Error thrown: ${JSON.stringify(error)}`;
       console.error(`[api] unhandled error at ${new URL(request.url).pathname}\n${detail}`);
-      return withVary(errorResponse(internal()));
+      return finalize(errorResponse(internal()), request);
     }
   };
 }

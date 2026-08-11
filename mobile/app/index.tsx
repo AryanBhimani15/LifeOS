@@ -114,7 +114,9 @@ export default function CaptureScreen() {
         const result = await planCommand(input);
         setPlan(result);
         setPhase("plan");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => undefined);
       } catch (e) {
         handleError(e);
       }
@@ -134,9 +136,10 @@ export default function CaptureScreen() {
         if (e instanceof SessionExpiredError) signOut();
       });
 
-    registerDevice(null, Application.nativeApplicationVersion ?? undefined).catch(
-      () => undefined,
-    );
+    registerDevice(
+      null,
+      Application.nativeApplicationVersion ?? undefined,
+    ).catch(() => undefined);
   }, [signOut]);
 
   async function confirm() {
@@ -145,8 +148,14 @@ export default function CaptureScreen() {
     setError(null);
 
     try {
-      const result = await executePlan(plan.planId, plan.needsConfirm, idempotencyKey.current);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      const result = await executePlan(
+        plan.planId,
+        plan.needsConfirm,
+        idempotencyKey.current,
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => undefined,
+      );
 
       if (result.answers?.length) {
         setAnswers(result.answers);
@@ -155,17 +164,25 @@ export default function CaptureScreen() {
       }
 
       setOutcome(
-        result.executed === 1 ? "Done — 1 change applied." : `Done — ${result.executed} changes applied.`,
+        result.executed === 1
+          ? "Done — 1 change applied."
+          : `Done — ${result.executed} changes applied.`,
       );
       setPlan(null);
       setPhase("done");
       // The web app reads the same database, so it is already in step; refresh
       // the counts shown under the mic.
-      fetchMe().then(setMe).catch(() => undefined);
+      fetchMe()
+        .then(setMe)
+        .catch(() => undefined);
     } catch (e) {
       // A plan that timed out while the phone was in a lift. Re-plan from the
       // original words rather than executing something whose targets may have moved.
-      if (e instanceof ApiError && /expired/i.test(e.message) && lastTranscript.current) {
+      if (
+        e instanceof ApiError &&
+        /expired/i.test(e.message) &&
+        lastTranscript.current
+      ) {
         setError("That took too long to confirm — re-checking your request…");
         setPlan(null);
         submit(lastTranscript.current);
@@ -195,7 +212,9 @@ export default function CaptureScreen() {
         {/* header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.brand, { color: palette.text }]}>✦ LifeOS</Text>
+            <Text style={[styles.brand, { color: palette.text }]}>
+              ✦ LifeOS
+            </Text>
             {me && (
               <Text style={[styles.status, { color: palette.textMuted }]}>
                 {me.counts.overdue > 0
@@ -207,15 +226,22 @@ export default function CaptureScreen() {
             )}
           </View>
           <Pressable
+            accessibilityRole="button"
             onPress={() =>
-              Alert.alert("Sign out?", "You'll need to sign in again on this device.", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Sign out", style: "destructive", onPress: signOut },
-              ])
+              Alert.alert(
+                "Sign out?",
+                "You'll need to sign in again on this device.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Sign out", style: "destructive", onPress: signOut },
+                ],
+              )
             }
             hitSlop={12}
           >
-            <Text style={[styles.signOut, { color: palette.textFaint }]}>Sign out</Text>
+            <Text style={[styles.signOut, { color: palette.textFaint }]}>
+              Sign out
+            </Text>
           </Pressable>
         </View>
 
@@ -246,7 +272,9 @@ export default function CaptureScreen() {
                 {phase === "thinking" ? (
                   <View style={styles.thinking}>
                     <ActivityIndicator color={palette.accent} />
-                    <Text style={[styles.transcript, { color: palette.textMuted }]}>
+                    <Text
+                      style={[styles.transcript, { color: palette.textMuted }]}
+                    >
                       Working out what that means…
                     </Text>
                   </View>
@@ -255,15 +283,25 @@ export default function CaptureScreen() {
                     “{speech.transcript}”
                   </Text>
                 ) : outcome ? (
-                  <Text style={[styles.transcript, { color: palette.success }]}>{outcome}</Text>
+                  <Text style={[styles.transcript, { color: palette.success }]}>
+                    {outcome}
+                  </Text>
                 ) : listening ? (
-                  <Text style={[styles.transcript, { color: palette.textMuted }]}>Listening…</Text>
+                  <Text
+                    style={[styles.transcript, { color: palette.textMuted }]}
+                  >
+                    Listening…
+                  </Text>
                 ) : speechAvailable ? (
-                  <Text style={[styles.transcript, { color: palette.textFaint }]}>
+                  <Text
+                    style={[styles.transcript, { color: palette.textFaint }]}
+                  >
                     Say what you need. It becomes a plan you approve.
                   </Text>
                 ) : (
-                  <Text style={[styles.transcript, { color: palette.textFaint }]}>
+                  <Text
+                    style={[styles.transcript, { color: palette.textFaint }]}
+                  >
                     Type what you need. It becomes a plan you approve.
                   </Text>
                 )}
@@ -271,7 +309,13 @@ export default function CaptureScreen() {
 
               {!speechAvailable && !error && (
                 <Text
-                  style={[styles.notice, { color: palette.textMuted, backgroundColor: palette.surfaceAlt }]}
+                  style={[
+                    styles.notice,
+                    {
+                      color: palette.textMuted,
+                      backgroundColor: palette.surfaceAlt,
+                    },
+                  ]}
                 >
                   {UNAVAILABLE_MESSAGE}
                 </Text>
@@ -279,7 +323,13 @@ export default function CaptureScreen() {
 
               {(error || (speech.error && speechAvailable)) && (
                 <Text
-                  style={[styles.error, { color: palette.danger, backgroundColor: palette.dangerSoft }]}
+                  style={[
+                    styles.error,
+                    {
+                      color: palette.danger,
+                      backgroundColor: palette.dangerSoft,
+                    },
+                  ]}
                 >
                   {error ?? speech.error}
                 </Text>
@@ -300,10 +350,15 @@ export default function CaptureScreen() {
                     onSubmitEditing={() => submit(typed)}
                     style={[
                       styles.input,
-                      { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text },
+                      {
+                        backgroundColor: palette.surface,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
                     ]}
                   />
                   <Pressable
+                    accessibilityRole="button"
                     onPress={() => submit(typed)}
                     style={[styles.send, { backgroundColor: palette.accent }]}
                   >
@@ -311,8 +366,14 @@ export default function CaptureScreen() {
                   </Pressable>
                 </View>
               ) : (
-                <Pressable onPress={() => setShowTyping(true)} hitSlop={10}>
-                  <Text style={[styles.typeLink, { color: palette.accent }]}>Type instead</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowTyping(true)}
+                  hitSlop={10}
+                >
+                  <Text style={[styles.typeLink, { color: palette.accent }]}>
+                    Type instead
+                  </Text>
                 </Pressable>
               )}
 
@@ -320,11 +381,20 @@ export default function CaptureScreen() {
                 <View style={styles.examples}>
                   {EXAMPLES.map((example) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={example}
                       onPress={() => submit(example)}
-                      style={[styles.example, { backgroundColor: palette.surfaceAlt }]}
+                      style={[
+                        styles.example,
+                        { backgroundColor: palette.surfaceAlt },
+                      ]}
                     >
-                      <Text style={[styles.exampleText, { color: palette.textMuted }]}>
+                      <Text
+                        style={[
+                          styles.exampleText,
+                          { color: palette.textMuted },
+                        ]}
+                      >
                         {example}
                       </Text>
                     </Pressable>
@@ -361,16 +431,50 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   readout: { minHeight: 56, justifyContent: "center" },
-  thinking: { flexDirection: "row", alignItems: "center", gap: spacing.sm, justifyContent: "center" },
+  thinking: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    justifyContent: "center",
+  },
   transcript: { fontSize: 17, lineHeight: 24, textAlign: "center" },
-  error: { fontSize: 13.5, padding: spacing.sm + 2, borderRadius: radius.sm, textAlign: "center", overflow: "hidden" },
-  notice: { fontSize: 12.5, lineHeight: 18, padding: spacing.sm + 2, borderRadius: radius.sm, textAlign: "center", overflow: "hidden" },
+  error: {
+    fontSize: 13.5,
+    padding: spacing.sm + 2,
+    borderRadius: radius.sm,
+    textAlign: "center",
+    overflow: "hidden",
+  },
+  notice: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    padding: spacing.sm + 2,
+    borderRadius: radius.sm,
+    textAlign: "center",
+    overflow: "hidden",
+  },
   typeRow: { flexDirection: "row", gap: spacing.sm },
-  input: { flex: 1, height: 46, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: 16 },
-  send: { paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  input: {
+    flex: 1,
+    height: 46,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    fontSize: 16,
+  },
+  send: {
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sendText: { color: "#FFFFFF", fontWeight: "700" },
   typeLink: { fontSize: 14, fontWeight: "600", textAlign: "center" },
   examples: { gap: spacing.sm, marginTop: spacing.md },
-  example: { paddingVertical: 11, paddingHorizontal: spacing.md, borderRadius: radius.md },
+  example: {
+    paddingVertical: 11,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+  },
   exampleText: { fontSize: 13.5 },
 });

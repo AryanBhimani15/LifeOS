@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { preflightResponse } from "@/lib/cors";
 
 /**
  * Route protection at the edge of the app.
@@ -29,7 +30,15 @@ export function proxy(request: NextRequest) {
   // `defineRoute` and answer with 401 JSON; redirecting them to an HTML login
   // page hands `fetch` a document where it expects JSON, so the client sees a
   // parse error instead of "you are signed out".
-  if (pathname.startsWith("/api/")) return NextResponse.next();
+  if (pathname.startsWith("/api/")) {
+    // Preflight carries no credentials and must be answered before any auth
+    // logic, or the browser never sends the real request.
+    if (request.method === "OPTIONS") {
+      const preflight = preflightResponse(request);
+      if (preflight) return preflight;
+    }
+    return NextResponse.next();
+  }
 
   const isPublic =
     PUBLIC_PATHS.includes(pathname) ||

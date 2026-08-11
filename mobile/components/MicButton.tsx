@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import * as Haptics from "expo-haptics";
 import { radius, spacing, usePalette } from "../lib/theme";
 import type { SpeechState } from "../lib/speech";
@@ -48,15 +55,25 @@ export function MicButton({
           easing: Easing.out(Easing.ease),
           useNativeDriver: true,
         }),
-        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
     return () => loop.stop();
   }, [listening, pulse]);
 
-  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.45] });
-  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] });
+  const ringScale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.45],
+  });
+  const ringOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.35, 0],
+  });
 
   return (
     <View style={styles.wrap}>
@@ -83,11 +100,16 @@ export function MicButton({
               ? "Stop listening"
               : "Start speaking a command"
         }
-        accessibilityState={{ disabled: disabled || unavailable, busy: listening }}
+        accessibilityState={{
+          disabled: disabled || unavailable,
+          busy: listening,
+        }}
         disabled={disabled || unavailable}
         onPress={() => {
           // A short tap confirms the mic toggled without needing to look.
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+            () => undefined,
+          );
           onPress();
         }}
         style={({ pressed }) => [
@@ -105,11 +127,19 @@ export function MicButton({
           },
         ]}
       >
-        <Text style={[styles.glyph, unavailable && { color: palette.textFaint }]}>
+        <Text
+          style={[styles.glyph, unavailable && { color: palette.textFaint }]}
+        >
           {unavailable ? "⌨" : listening ? "■" : "●"}
         </Text>
-        <Text style={[styles.caption, unavailable && { color: palette.textMuted }]}>
-          {unavailable ? "Type below" : listening ? "Tap to stop" : "Tap to speak"}
+        <Text
+          style={[styles.caption, unavailable && { color: palette.textMuted }]}
+        >
+          {unavailable
+            ? "Type below"
+            : listening
+              ? "Tap to stop"
+              : "Tap to speak"}
         </Text>
       </Pressable>
     </View>
@@ -119,8 +149,17 @@ export function MicButton({
 const SIZE = 168;
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: "center", justifyContent: "center", height: SIZE + spacing.lg },
-  ring: { position: "absolute", width: SIZE, height: SIZE, borderRadius: radius.pill },
+  wrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    height: SIZE + spacing.lg,
+  },
+  ring: {
+    position: "absolute",
+    width: SIZE,
+    height: SIZE,
+    borderRadius: radius.pill,
+  },
   button: {
     width: SIZE,
     height: SIZE,

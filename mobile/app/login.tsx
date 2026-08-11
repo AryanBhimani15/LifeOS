@@ -78,7 +78,11 @@ export default function LoginScreen() {
               textContentType="emailAddress"
               style={[
                 styles.input,
-                { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text },
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                  color: palette.text,
+                },
               ]}
             />
             <TextInput
@@ -92,20 +96,36 @@ export default function LoginScreen() {
               returnKeyType="go"
               style={[
                 styles.input,
-                { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text },
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                  color: palette.text,
+                },
               ]}
             />
 
             {error && (
-              <Text style={[styles.error, { color: palette.danger, backgroundColor: palette.dangerSoft }]}>
+              <Text
+                style={[
+                  styles.error,
+                  {
+                    color: palette.danger,
+                    backgroundColor: palette.dangerSoft,
+                  },
+                ]}
+              >
                 {error}
               </Text>
             )}
 
             <Pressable
+              accessibilityRole="button"
               onPress={submit}
               disabled={busy}
-              style={[styles.button, { backgroundColor: palette.accent, opacity: busy ? 0.6 : 1 }]}
+              style={[
+                styles.button,
+                { backgroundColor: palette.accent, opacity: busy ? 0.6 : 1 },
+              ]}
             >
               {busy ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -127,13 +147,35 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
-  body: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.lg, gap: spacing.sm },
+  body: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
   brand: { fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
   sub: { fontSize: 15, marginBottom: spacing.lg },
   form: { gap: spacing.sm },
-  input: { height: 50, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: 16 },
-  button: { height: 50, borderRadius: radius.md, alignItems: "center", justifyContent: "center", marginTop: spacing.xs },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    fontSize: 16,
+  },
+  button: {
+    height: 50,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.xs,
+  },
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  error: { fontSize: 13.5, padding: spacing.sm + 2, borderRadius: radius.sm, overflow: "hidden" },
+  error: {
+    fontSize: 13.5,
+    padding: spacing.sm + 2,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+  },
   hint: { fontSize: 11.5, textAlign: "center", marginTop: spacing.xl },
 });

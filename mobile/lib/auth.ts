@@ -1,17 +1,13 @@
-import * as SecureStore from "expo-secure-store";
 import * as Application from "expo-application";
+import { deleteItem, getItem, setItem } from "./storage";
 import type { AuthTokens, SessionUser } from "./types";
 
 /**
  * Credential storage.
  *
- * Tokens go in the iOS Keychain via expo-secure-store, never AsyncStorage —
- * AsyncStorage is plaintext on disk and survives in device backups.
- *
- * `AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY` means the token is unavailable until the
- * phone has been unlocked once after boot, and never migrates to a new device
- * through an iCloud backup restore. Background refresh still works, which
- * `WHEN_UNLOCKED` would break.
+ * The platform-appropriate backing store lives in ./storage — Keychain on
+ * device, localStorage on web (with the caveats documented there). This module
+ * only decides WHAT is stored, not where.
  */
 
 const ACCESS_KEY = "lifeos.accessToken";
@@ -19,25 +15,21 @@ const REFRESH_KEY = "lifeos.refreshToken";
 const USER_KEY = "lifeos.user";
 const INSTALL_KEY = "lifeos.installId";
 
-const OPTIONS: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
-};
-
 export async function saveTokens(tokens: AuthTokens, user?: SessionUser) {
-  await SecureStore.setItemAsync(ACCESS_KEY, tokens.accessToken, OPTIONS);
-  await SecureStore.setItemAsync(REFRESH_KEY, tokens.refreshToken, OPTIONS);
-  if (user) await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user), OPTIONS);
+  await setItem(ACCESS_KEY, tokens.accessToken);
+  await setItem(REFRESH_KEY, tokens.refreshToken);
+  if (user) await setItem(USER_KEY, JSON.stringify(user));
 }
 
 export async function saveAccessToken(accessToken: string) {
-  await SecureStore.setItemAsync(ACCESS_KEY, accessToken, OPTIONS);
+  await setItem(ACCESS_KEY, accessToken);
 }
 
-export const getAccessToken = () => SecureStore.getItemAsync(ACCESS_KEY, OPTIONS);
-export const getRefreshToken = () => SecureStore.getItemAsync(REFRESH_KEY, OPTIONS);
+export const getAccessToken = () => getItem(ACCESS_KEY);
+export const getRefreshToken = () => getItem(REFRESH_KEY);
 
 export async function getStoredUser(): Promise<SessionUser | null> {
-  const raw = await SecureStore.getItemAsync(USER_KEY, OPTIONS);
+  const raw = await getItem(USER_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as SessionUser;
@@ -48,9 +40,9 @@ export async function getStoredUser(): Promise<SessionUser | null> {
 
 export async function clearTokens() {
   await Promise.all([
-    SecureStore.deleteItemAsync(ACCESS_KEY, OPTIONS),
-    SecureStore.deleteItemAsync(REFRESH_KEY, OPTIONS),
-    SecureStore.deleteItemAsync(USER_KEY, OPTIONS),
+    deleteItem(ACCESS_KEY),
+    deleteItem(REFRESH_KEY),
+    deleteItem(USER_KEY),
   ]);
 }
 
@@ -62,13 +54,14 @@ export async function clearTokens() {
  * sign-ins, and it should disappear when the app is deleted.
  */
 export async function getInstallId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(INSTALL_KEY, OPTIONS);
+  const existing = await getItem(INSTALL_KEY);
   if (existing) return existing;
 
+  // getIosIdForVendorAsync does not exist on web, hence the guarded call.
   const generated =
-    (await Application.getIosIdForVendorAsync().catch(() => null)) ??
+    (await Application.getIosIdForVendorAsync?.().catch(() => null)) ??
     `install-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 
-  await SecureStore.setItemAsync(INSTALL_KEY, generated, OPTIONS);
+  await setItem(INSTALL_KEY, generated);
   return generated;
 }

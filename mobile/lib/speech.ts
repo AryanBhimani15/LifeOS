@@ -19,7 +19,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * In a development build (`npx expo run:ios`) the module resolves and voice works.
  */
 
-export type SpeechState = "idle" | "starting" | "listening" | "unavailable" | "denied";
+export type SpeechState =
+  "idle" | "starting" | "listening" | "unavailable" | "denied";
 
 interface SpeechEvent {
   results?: { transcript?: string }[];
@@ -33,7 +34,10 @@ interface NativeSpeech {
     start: (options: Record<string, unknown>) => void;
     stop: () => void;
   };
-  useSpeechRecognitionEvent: (name: string, handler: (event: SpeechEvent) => void) => void;
+  useSpeechRecognitionEvent: (
+    name: string,
+    handler: (event: SpeechEvent) => void,
+  ) => void;
 }
 
 /**
@@ -47,7 +51,10 @@ function loadNative(): NativeSpeech | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("expo-speech-recognition") as Partial<NativeSpeech>;
-    if (!mod?.ExpoSpeechRecognitionModule || typeof mod.useSpeechRecognitionEvent !== "function") {
+    if (
+      !mod?.ExpoSpeechRecognitionModule ||
+      typeof mod.useSpeechRecognitionEvent !== "function"
+    ) {
       return null;
     }
     return mod as NativeSpeech;
@@ -87,7 +94,9 @@ export interface SpeechController {
 }
 
 export function useSpeech(onFinal: (text: string) => void): SpeechController {
-  const [state, setState] = useState<SpeechState>(speechAvailable ? "idle" : "unavailable");
+  const [state, setState] = useState<SpeechState>(
+    speechAvailable ? "idle" : "unavailable",
+  );
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -110,13 +119,20 @@ export function useSpeech(onFinal: (text: string) => void): SpeechController {
   });
 
   useSpeechEvent("end", () => {
-    setState((current) => (current === "listening" || current === "starting" ? "idle" : current));
+    setState((current) =>
+      current === "listening" || current === "starting" ? "idle" : current,
+    );
   });
 
   useSpeechEvent("error", (event) => {
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+    if (
+      event.error === "not-allowed" ||
+      event.error === "service-not-allowed"
+    ) {
       setState("denied");
-      setError("Microphone access is off. Turn it on in Settings, or type instead.");
+      setError(
+        "Microphone access is off. Turn it on in Settings, or type instead.",
+      );
     } else {
       setState("idle");
       // Usually the recogniser being unavailable offline without downloaded
@@ -137,10 +153,13 @@ export function useSpeech(onFinal: (text: string) => void): SpeechController {
     setState("starting");
 
     try {
-      const permission = await NATIVE.ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const permission =
+        await NATIVE.ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!permission.granted) {
         setState("denied");
-        setError("Microphone access is off. Turn it on in Settings, or type instead.");
+        setError(
+          "Microphone access is off. Turn it on in Settings, or type instead.",
+        );
         return;
       }
 
@@ -171,5 +190,13 @@ export function useSpeech(onFinal: (text: string) => void): SpeechController {
     setState(speechAvailable ? "idle" : "unavailable");
   }, []);
 
-  return { state, transcript, error, available: speechAvailable, start, stop, reset };
+  return {
+    state,
+    transcript,
+    error,
+    available: speechAvailable,
+    start,
+    stop,
+    reset,
+  };
 }

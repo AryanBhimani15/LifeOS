@@ -7,6 +7,7 @@ import {
   saveAccessToken,
   saveTokens,
 } from "./auth";
+import { markSignedIn, markSignedOut } from "./session-store";
 import type {
   ApiErrorBody,
   ExecutionOutcome,
@@ -50,7 +51,11 @@ export class ApiError extends Error {
 /** Thrown when the refresh token is gone or rejected; the UI must sign out. */
 export class SessionExpiredError extends ApiError {
   constructor() {
-    super("SESSION_EXPIRED", "Your session has expired. Please sign in again.", 401);
+    super(
+      "SESSION_EXPIRED",
+      "Your session has expired. Please sign in again.",
+      401,
+    );
     this.name = "SessionExpiredError";
   }
 }
@@ -115,6 +120,7 @@ async function refreshAccessToken(): Promise<string> {
 
     if (!response.ok) {
       await clearTokens();
+      markSignedOut();
       throw new SessionExpiredError();
     }
 
@@ -130,7 +136,10 @@ async function refreshAccessToken(): Promise<string> {
   }
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
   const send = async (token: string | null) =>
     fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? "GET",
@@ -138,7 +147,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal,
     });
 
@@ -161,14 +171,25 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 // Endpoints
 // ---------------------------------------------------------------------------
 
-export async function login(email: string, password: string, deviceName: string) {
+export async function login(
+  email: string,
+  password: string,
+  deviceName: string,
+) {
   const installId = await getInstallId();
   const result = await request<LoginResponse>("/api/mobile/auth/login", {
     method: "POST",
     skipAuth: true,
-    body: { email, password, device: { name: deviceName, installId, platform: "ios" } },
+    body: {
+      email,
+      password,
+      device: { name: deviceName, installId, platform: "ios" },
+    },
   });
   await saveTokens(result, result.user);
+  // Publish so the auth gate re-evaluates; without this the gate keeps its
+  // mount-time answer and bounces a freshly signed-in user back to /login.
+  markSignedIn();
   return result;
 }
 
@@ -183,6 +204,7 @@ export async function logout() {
     }).catch(() => undefined);
   }
   await clearTokens();
+  markSignedOut();
 }
 
 export const fetchMe = () => request<MeResponse>("/api/mobile/me");
@@ -197,7 +219,11 @@ export const planCommand = (input: string, signal?: AbortSignal) =>
  * `idempotencyKey` matters most here: mobile networks drop responses, and
  * without it a retry reports failure for work that succeeded.
  */
-export const executePlan = (planId: string, confirmed: boolean, idempotencyKey: string) =>
+export const executePlan = (
+  planId: string,
+  confirmed: boolean,
+  idempotencyKey: string,
+) =>
   request<ExecutionOutcome>(`/api/ai/plans/${planId}/execute`, {
     method: "POST",
     body: { confirmed, idempotencyKey },
@@ -206,7 +232,10 @@ export const executePlan = (planId: string, confirmed: boolean, idempotencyKey: 
 export const rejectPlan = (planId: string) =>
   request<{ ok: true }>(`/api/ai/plans/${planId}/reject`, { method: "POST" });
 
-export async function registerDevice(pushToken: string | null, appVersion?: string) {
+export async function registerDevice(
+  pushToken: string | null,
+  appVersion?: string,
+) {
   const installId = await getInstallId();
   return request<{ pushDeliveryEnabled: boolean }>("/api/mobile/devices", {
     method: "POST",
