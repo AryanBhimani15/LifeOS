@@ -29,6 +29,9 @@ export function MicButton({
   // rules forbid. The initialiser runs once, so the value is still stable.
   const [pulse] = useState(() => new Animated.Value(0));
   const listening = state === "listening" || state === "starting";
+  // Voice missing is a normal state on this build, not a failure. It reads as
+  // muted and says so, rather than looking like a button that ignores taps.
+  const unavailable = state === "unavailable";
 
   useEffect(() => {
     if (!listening) {
@@ -73,9 +76,15 @@ export function MicButton({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={listening ? "Stop listening" : "Start speaking a command"}
-        accessibilityState={{ disabled, busy: listening }}
-        disabled={disabled}
+        accessibilityLabel={
+          unavailable
+            ? "Voice unavailable on this build — type your command instead"
+            : listening
+              ? "Stop listening"
+              : "Start speaking a command"
+        }
+        accessibilityState={{ disabled: disabled || unavailable, busy: listening }}
+        disabled={disabled || unavailable}
         onPress={() => {
           // A short tap confirms the mic toggled without needing to look.
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
@@ -84,14 +93,24 @@ export function MicButton({
         style={({ pressed }) => [
           styles.button,
           {
-            backgroundColor: listening ? palette.danger : palette.accent,
+            backgroundColor: unavailable
+              ? palette.surfaceAlt
+              : listening
+                ? palette.danger
+                : palette.accent,
+            borderWidth: unavailable ? 1 : 0,
+            borderColor: palette.border,
             opacity: disabled ? 0.45 : pressed ? 0.9 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           },
         ]}
       >
-        <Text style={styles.glyph}>{listening ? "■" : "●"}</Text>
-        <Text style={styles.caption}>{listening ? "Tap to stop" : "Tap to speak"}</Text>
+        <Text style={[styles.glyph, unavailable && { color: palette.textFaint }]}>
+          {unavailable ? "⌨" : listening ? "■" : "●"}
+        </Text>
+        <Text style={[styles.caption, unavailable && { color: palette.textMuted }]}>
+          {unavailable ? "Type below" : listening ? "Tap to stop" : "Tap to speak"}
+        </Text>
       </Pressable>
     </View>
   );

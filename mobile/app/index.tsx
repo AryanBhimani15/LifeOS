@@ -26,7 +26,7 @@ import {
   planCommand,
   registerDevice,
 } from "../lib/api";
-import { useSpeech } from "../lib/speech";
+import { UNAVAILABLE_MESSAGE, speechAvailable, useSpeech } from "../lib/speech";
 import { MicButton } from "../components/MicButton";
 import { PlanReceipt } from "../components/PlanReceipt";
 import { radius, spacing, usePalette } from "../lib/theme";
@@ -61,7 +61,9 @@ export default function CaptureScreen() {
   const [outcome, setOutcome] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
-  const [showTyping, setShowTyping] = useState(false);
+  // Without the native speech module there is nothing to tap, so the text field
+  // is the primary control rather than a fallback tucked behind a link.
+  const [showTyping, setShowTyping] = useState(!speechAvailable);
 
   /**
    * The last thing the user actually said.
@@ -256,18 +258,30 @@ export default function CaptureScreen() {
                   <Text style={[styles.transcript, { color: palette.success }]}>{outcome}</Text>
                 ) : listening ? (
                   <Text style={[styles.transcript, { color: palette.textMuted }]}>Listening…</Text>
-                ) : (
+                ) : speechAvailable ? (
                   <Text style={[styles.transcript, { color: palette.textFaint }]}>
                     Say what you need. It becomes a plan you approve.
+                  </Text>
+                ) : (
+                  <Text style={[styles.transcript, { color: palette.textFaint }]}>
+                    Type what you need. It becomes a plan you approve.
                   </Text>
                 )}
               </View>
 
-              {(speech.error || error) && (
+              {!speechAvailable && !error && (
+                <Text
+                  style={[styles.notice, { color: palette.textMuted, backgroundColor: palette.surfaceAlt }]}
+                >
+                  {UNAVAILABLE_MESSAGE}
+                </Text>
+              )}
+
+              {(error || (speech.error && speechAvailable)) && (
                 <Text
                   style={[styles.error, { color: palette.danger, backgroundColor: palette.dangerSoft }]}
                 >
-                  {speech.error ?? error}
+                  {error ?? speech.error}
                 </Text>
               )}
 
@@ -350,6 +364,7 @@ const styles = StyleSheet.create({
   thinking: { flexDirection: "row", alignItems: "center", gap: spacing.sm, justifyContent: "center" },
   transcript: { fontSize: 17, lineHeight: 24, textAlign: "center" },
   error: { fontSize: 13.5, padding: spacing.sm + 2, borderRadius: radius.sm, textAlign: "center", overflow: "hidden" },
+  notice: { fontSize: 12.5, lineHeight: 18, padding: spacing.sm + 2, borderRadius: radius.sm, textAlign: "center", overflow: "hidden" },
   typeRow: { flexDirection: "row", gap: spacing.sm },
   input: { flex: 1, height: 46, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: 16 },
   send: { paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
