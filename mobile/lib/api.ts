@@ -243,6 +243,23 @@ export const executePlan = (
     body: { confirmed, idempotencyKey },
   });
 
+/**
+ * Files text as a chosen type, with no AI in the path.
+ *
+ * The counterpart to planCommand. Free, instant, and unaffected by the AI being
+ * rate limited — which matters because capture is the one thing that must never
+ * fail. You picked the type, so there is nothing to interpret and nothing to
+ * confirm.
+ */
+export const captureDirect = (
+  text: string,
+  type: "task" | "goal" | "note" | "project" | "expense",
+) =>
+  request<{ type: string; id: string; label: string; detail?: string }>("/api/capture", {
+    method: "POST",
+    body: { text, type },
+  });
+
 export const rejectPlan = (planId: string) =>
   request<{ ok: true }>(`/api/ai/plans/${planId}/reject`, { method: "POST" });
 

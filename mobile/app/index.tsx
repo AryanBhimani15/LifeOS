@@ -25,10 +25,12 @@ import {
   newIdempotencyKey,
   planCommand,
   registerDevice,
+  captureDirect,
 } from "../lib/api";
 import { UNAVAILABLE_MESSAGE, speechAvailable, useSpeech } from "../lib/speech";
 import { MicButton } from "../components/MicButton";
 import { PlanReceipt } from "../components/PlanReceipt";
+import { CaptureChooser, type CaptureKind } from "../components/CaptureChooser";
 import { radius, spacing, usePalette } from "../lib/theme";
 import type { MeResponse, Plan, QueryAnswer } from "../lib/types";
 
@@ -41,7 +43,7 @@ import type { MeResponse, Plan, QueryAnswer } from "../lib/types";
  * screen, and a miniature copy would be worse at both.
  */
 
-type Phase = "idle" | "thinking" | "plan" | "executing" | "done";
+type Phase = "idle" | "captured" | "thinking" | "plan" | "executing" | "done";
 
 const EXAMPLES = [
   "Remind me to submit my Azure assignment tomorrow at 6 PM",
@@ -64,6 +66,8 @@ export default function CaptureScreen() {
   // Without the native speech module there is nothing to tap, so the text field
   // is the primary control rather than a fallback tucked behind a link.
   const [showTyping, setShowTyping] = useState(!speechAvailable);
+  /** Text waiting for the user to say what it is. Nothing has been sent yet. */
+  const [pending, setPending] = useState<string | null>(null);
 
   /**
    * The last thing the user actually said.
@@ -95,34 +99,75 @@ export default function CaptureScreen() {
     [signOut],
   );
 
-  const submit = useCallback(
-    async (text: string) => {
-      const input = text.trim();
-      if (!input) return;
+  /**
+   * Receives captured text and STOPS.
+   *
+   * It deliberately does not call the AI. Filing a sentence as a task is free
+   * and instant; interpreting it costs quota and can fail. Since the user knows
+   * what they just said, asking them is faster and more reliable than guessing —
+   * and it means capture still works when the AI is rate limited.
+   */
+  const submit = useCallback((text: string) => {
+    const input = text.trim();
+    if (!input) return;
 
-      lastTranscript.current = input;
-      idempotencyKey.current = newIdempotencyKey();
-      Keyboard.dismiss();
-      setShowTyping(false);
-      setTyped("");
+    lastTranscript.current = input;
+    Keyboard.dismiss();
+    setShowTyping(false);
+    setTyped("");
+    setError(null);
+    setAnswers([]);
+    setOutcome(null);
+    setPending(input);
+    setPhase("captured");
+    Haptics.selectionAsync().catch(() => undefined);
+  }, []);
+
+  /** Files the pending text as a chosen type. No AI, no confirmation needed. */
+  const fileAs = useCallback(
+    async (kind: CaptureKind) => {
+      if (!pending) return;
+      setPhase("executing");
       setError(null);
-      setAnswers([]);
-      setOutcome(null);
-      setPhase("thinking");
-
       try {
-        const result = await planCommand(input);
-        setPlan(result);
-        setPhase("plan");
+        const result = await captureDirect(pending, kind);
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => undefined);
+        setOutcome(
+          `Saved as ${kind}: ${result.label}${result.detail ? ` (${result.detail})` : ""}`,
+        );
+        setPending(null);
+        setPhase("done");
+        fetchMe()
+          .then(setMe)
+          .catch(() => undefined);
       } catch (e) {
         handleError(e);
+        setPhase("captured");
       }
     },
-    [handleError],
+    [pending, handleError],
   );
+
+  /** The opt-in AI path, for things a button cannot express. */
+  const interpret = useCallback(async () => {
+    if (!pending) return;
+    idempotencyKey.current = newIdempotencyKey();
+    setError(null);
+    setPhase("thinking");
+    try {
+      const result = await planCommand(pending);
+      setPending(null);
+      setPlan(result);
+      setPhase("plan");
+    } catch (e) {
+      // The AI being unavailable must not lose the capture — keep the text so
+      // it can still be filed with a button.
+      handleError(e);
+      setPhase("captured");
+    }
+  }, [pending, handleError]);
 
   const speech = useSpeech(submit);
 
@@ -194,6 +239,7 @@ export default function CaptureScreen() {
 
   function cancel() {
     setPlan(null);
+    setPending(null);
     setAnswers([]);
     setError(null);
     setPhase("idle");
@@ -259,6 +305,15 @@ export default function CaptureScreen() {
               onConfirm={confirm}
               onCancel={cancel}
               onRetry={submit}
+            />
+          ) : pending ? (
+            /* Text captured, nothing sent yet — the user says what it is. */
+            <CaptureChooser
+              text={pending}
+              busy={phase === "executing" || phase === "thinking"}
+              onPick={fileAs}
+              onInterpret={interpret}
+              onCancel={cancel}
             />
           ) : (
             <>
