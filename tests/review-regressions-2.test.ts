@@ -7,7 +7,7 @@ import { aiAction } from "@/lib/ai/actions";
 import { answerQuery } from "@/lib/ai/queries";
 import { todayInZone, startOfDayInZone } from "@/lib/dates";
 import { consumeRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-import { makeTask, makeTwoUsers, resetDatabase } from "./helpers/factories";
+import { makeTwoUsers, resetDatabase } from "./helpers/factories";
 
 /** Regressions for the second independent review round. */
 
