@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/session";
+import { signOut } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireOwned } from "@/lib/authz";
 import { updateTask, createTask, deleteTask, reorderTask } from "@/lib/repositories/tasks";
@@ -112,4 +113,16 @@ export async function deleteTaskAction(taskId: string) {
   });
   revalidatePath("/tasks");
   revalidatePath("/today");
+}
+
+/**
+ * Sign out.
+ *
+ * Must go through Auth.js rather than a plain form POST to /api/auth/signout:
+ * that endpoint requires a CSRF token, and a bare form without one is rejected
+ * with `?error=MissingCSRF` while leaving the session intact — the button
+ * appears to work and does nothing.
+ */
+export async function signOutAction() {
+  await signOut({ redirectTo: "/login" });
 }

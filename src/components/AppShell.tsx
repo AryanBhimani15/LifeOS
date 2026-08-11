@@ -17,6 +17,7 @@ import {
   Target,
   Wallet,
 } from "lucide-react";
+import { signOutAction } from "@/app/(app)/actions";
 import { useTheme } from "@/lib/theme";
 import { CommandBar } from "./CommandBar";
 import { ToastProvider } from "./ToastProvider";
@@ -80,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/settings" aria-label="Settings">
               <Settings size={16} />
             </Link>
-            <form action="/api/auth/signout" method="post">
+            <form action={signOutAction}>
               <button type="submit" aria-label="Sign out" title="Sign out">
                 <LogOut size={16} />
               </button>
