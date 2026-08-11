@@ -93,7 +93,13 @@ export async function answerQuery(userId: string, kind: QueryKind): Promise<Quer
           ...events.map((e) => ({
             id: e.id,
             label: e.title,
-            detail: e.startAt.toISOString().slice(11, 16),
+            // Formatted in the USER'S zone. toISOString() renders UTC, which
+            // showed a 9am standup as 03:30 for anyone not on UTC.
+            detail: new Intl.DateTimeFormat("en-GB", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: zone,
+            }).format(e.startAt),
           })),
         ],
       };

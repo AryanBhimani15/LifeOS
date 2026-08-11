@@ -26,11 +26,14 @@ import {
   planCommand,
   registerDevice,
   captureDirect,
+  askQuery,
+  type QueryKind,
 } from "../lib/api";
 import { UNAVAILABLE_MESSAGE, speechAvailable, useSpeech } from "../lib/speech";
 import { MicButton } from "../components/MicButton";
 import { PlanReceipt } from "../components/PlanReceipt";
 import { CaptureChooser, type CaptureKind } from "../components/CaptureChooser";
+import { AnswerCard } from "../components/AnswerCard";
 import { radius, spacing, usePalette } from "../lib/theme";
 import type { MeResponse, Plan, QueryAnswer } from "../lib/types";
 
@@ -68,6 +71,8 @@ export default function CaptureScreen() {
   const [showTyping, setShowTyping] = useState(!speechAvailable);
   /** Text waiting for the user to say what it is. Nothing has been sent yet. */
   const [pending, setPending] = useState<string | null>(null);
+  /** A direct answer being shown. Computed from SQL, never from a model. */
+  const [answer, setAnswer] = useState<QueryAnswer | null>(null);
 
   /**
    * The last thing the user actually said.
@@ -169,6 +174,27 @@ export default function CaptureScreen() {
     }
   }, [pending, handleError]);
 
+  /**
+   * Answers a known question with no AI in the path.
+   *
+   * These seven questions are computed server-side from SQL, so a button is
+   * both cheaper and more reliable than asking a model to classify the phrasing.
+   */
+  const look = useCallback(
+    async (kind: QueryKind) => {
+      setError(null);
+      setOutcome(null);
+      setPhase("thinking");
+      try {
+        setAnswer(await askQuery(kind));
+        setPhase("plan");
+      } catch (e) {
+        handleError(e);
+      }
+    },
+    [handleError],
+  );
+
   const speech = useSpeech(submit);
 
   // Register for push on every cold launch. iOS silently reissues push tokens
@@ -240,6 +266,7 @@ export default function CaptureScreen() {
   function cancel() {
     setPlan(null);
     setPending(null);
+    setAnswer(null);
     setAnswers([]);
     setError(null);
     setPhase("idle");
@@ -297,7 +324,9 @@ export default function CaptureScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* the plan receipt replaces the mic once there is something to confirm */}
-          {plan ? (
+          {answer ? (
+            <AnswerCard answer={answer} onDismiss={cancel} />
+          ) : plan ? (
             <PlanReceipt
               plan={plan}
               answers={answers}
@@ -432,28 +461,38 @@ export default function CaptureScreen() {
                 </Pressable>
               )}
 
-              {phase === "idle" && !speech.transcript && !outcome && (
+              {phase === "idle" && !speech.transcript && (
                 <View style={styles.examples}>
-                  {EXAMPLES.map((example) => (
-                    <Pressable
-                      accessibilityRole="button"
-                      key={example}
-                      onPress={() => submit(example)}
-                      style={[
-                        styles.example,
-                        { backgroundColor: palette.surfaceAlt },
-                      ]}
-                    >
-                      <Text
+                  <Text style={[styles.quickLabel, { color: palette.textFaint }]}>
+                    QUICK LOOK · no AI, instant
+                  </Text>
+                  <View style={styles.quickRow}>
+                    {(
+                      [
+                        ["today", "Today"],
+                        ["overdue", "Overdue"],
+                        ["due_this_week", "This week"],
+                        ["at_risk", "At risk"],
+                        ["habit_status", "Habits"],
+                        ["spending_summary", "Money"],
+                      ] as [QueryKind, string][]
+                    ).map(([kind, label]) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={label}
+                        key={kind}
+                        onPress={() => look(kind)}
                         style={[
-                          styles.exampleText,
-                          { color: palette.textMuted },
+                          styles.quickChip,
+                          { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
                         ]}
                       >
-                        {example}
-                      </Text>
-                    </Pressable>
-                  ))}
+                        <Text style={[styles.exampleText, { color: palette.text }]}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 </View>
               )}
             </>
@@ -526,6 +565,9 @@ const styles = StyleSheet.create({
   sendText: { color: "#FFFFFF", fontWeight: "700" },
   typeLink: { fontSize: 14, fontWeight: "600", textAlign: "center" },
   examples: { gap: spacing.sm, marginTop: spacing.md },
+  quickLabel: { fontSize: 10.5, fontWeight: "700", letterSpacing: 0.7, textAlign: "center" },
+  quickRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, justifyContent: "center" },
+  quickChip: { paddingVertical: 9, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1 },
   example: {
     paddingVertical: 11,
     paddingHorizontal: spacing.md,
