@@ -136,6 +136,19 @@ async function refreshAccessToken(): Promise<string> {
   }
 }
 
+/**
+ * ngrok's free tier answers plain GET requests with an HTML interstitial that
+ * carries no CORS headers, so a browser blocks them — POSTs escape it because
+ * their preflight passes through. This header opts out.
+ *
+ * Sent only for ngrok hosts: it means nothing elsewhere and has no business on
+ * production traffic. The server allows it in Access-Control-Allow-Headers,
+ * which is required because adding it makes an otherwise simple GET preflighted.
+ */
+const TUNNEL_HEADERS: Record<string, string> = /ngrok/i.test(API_BASE_URL)
+  ? { "ngrok-skip-browser-warning": "1" }
+  : {};
+
 async function request<T>(
   path: string,
   options: RequestOptions = {},
@@ -145,6 +158,7 @@ async function request<T>(
       method: options.method ?? "GET",
       headers: {
         "Content-Type": "application/json",
+        ...TUNNEL_HEADERS,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body:

@@ -57,7 +57,12 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    // ngrok-skip-browser-warning is listed so a tunnelled browser client can
+    // send it. ngrok's free tier serves an HTML interstitial for plain GETs,
+    // which carries no CORS headers and so is blocked — POSTs escape it because
+    // their preflight passes through. Allowing the header lets the client opt
+    // out. Harmless anywhere else: servers ignore unknown request headers.
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, ngrok-skip-browser-warning",
     "Access-Control-Max-Age": "600",
   };
 }
