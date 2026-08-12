@@ -6,9 +6,10 @@ import { signOut } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireOwned } from "@/lib/authz";
 import { updateTask, captureTask, deleteTask, reorderTask } from "@/lib/repositories/tasks";
-import { todayDateInZone } from "@/lib/dates";
+import { instantInZone, todayDateInZone, todayInZone } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
 import type { TaskStatus } from "@/generated/prisma/enums";
+import { createEvent } from "@/lib/repositories/events";
 
 /**
  * Server actions for the app UI.
@@ -46,9 +47,33 @@ export async function toggleHabitAction(habitId: string) {
 
 export async function completeTaskAction(taskId: string) {
   const userId = await requireUserId();
-  await updateTask(userId, taskId, { status: "DONE" });
+  const existing = await db.task.findFirst({ where: { id: taskId, userId }, select: { status: true } });
+  if (!existing) return;
+  await updateTask(userId, taskId, { status: existing.status === "DONE" ? "TODO" : "DONE" });
   revalidatePath("/today");
   revalidatePath("/tasks");
+}
+
+/** The Home checklist is intentionally faster than the general capture sheet:
+ * every row it creates belongs to today, without asking for a second choice. */
+export async function addTodayTaskAction(title: string): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const text = title.trim();
+  if (!text) return { error: "Write a task first." };
+  if (text.length > 500) return { error: "That task title is a little too long." };
+  const settings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { timezone: true, weekStartsOn: true },
+  });
+  const zone = settings?.timezone ?? "UTC";
+  await captureTask(
+    userId,
+    { text, dueAt: instantInZone(todayInZone(zone), 23 * 60 + 59, zone), dueHasTime: false },
+    { timeZone: zone, weekStartsOn: settings?.weekStartsOn ?? 1 },
+  );
+  revalidatePath("/today");
+  revalidatePath("/tasks");
+  return {};
 }
 
 export async function moveTaskAction(input: {
@@ -83,6 +108,7 @@ export interface AddTaskInput {
   dueHasTime?: boolean;
   note?: string | null;
   remindAt?: string | null;
+  priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 }
 
 export interface AddTaskResult {
@@ -90,6 +116,77 @@ export interface AddTaskResult {
   task?: { id: string; title: string; dueAt: string | null; dueHasTime: boolean };
   /** The words that became the date, echoed back so the reading is visible. */
   matchedText?: string | null;
+}
+
+export interface AddEventResult {
+  error?: string;
+  event?: { id: string; title: string; kind: "EXAM" | "EVENT"; startAt: string; endAt: string };
+}
+
+function autoTags(title: string): string[] {
+  const ignored = new Set(["the", "and", "for", "with", "from", "this", "that", "exam", "event", "test"]);
+  return [...new Set(title.match(/[A-Za-z][A-Za-z0-9+.-]*/g)?.map((word) => word.toUpperCase()).filter((word) => !ignored.has(word.toLowerCase()) && word.length > 1) ?? [])].slice(0, 3);
+}
+
+/**
+ * Creates the richer calendar record used for exams and events. Time is
+ * intentionally optional: without it this is an all-day event, never a fake
+ * midnight appointment.
+ */
+export async function addEventAction(input: {
+  text: string;
+  kind: "EXAM" | "EVENT";
+  date: string;
+  time?: string | null;
+  note?: string | null;
+}): Promise<AddEventResult> {
+  const userId = await requireUserId();
+  const title = input.text.trim();
+  if (!title) return { error: "Type a title first." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "Choose a date for this event." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { timezone: true } });
+  const zone = settings?.timezone ?? "UTC";
+  const time = input.time?.match(/^(\d{2}):(\d{2})$/);
+  const minutes = time ? Number(time[1]) * 60 + Number(time[2]) : 0;
+  if (time && (minutes < 0 || minutes >= 24 * 60)) return { error: "That time isn't valid." };
+  const start = instantInZone(input.date, minutes, zone);
+  const end = time ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  const event = await createEvent(userId, {
+    title: title.slice(0, 200),
+    kind: input.kind,
+    startAt: start,
+    endAt: end,
+    allDay: !time,
+    description: input.note?.trim() || null,
+    tagNames: autoTags(title),
+  });
+  revalidatePath("/today");
+  revalidatePath("/tasks");
+  return { event: { ...event, kind: event.kind as "EXAM" | "EVENT", startAt: event.startAt.toISOString(), endAt: event.endAt.toISOString() } };
+}
+
+export async function addQuickNoteAction(text: string): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const content = text.trim();
+  if (!content) return { error: "Write a note first." };
+  await db.note.create({
+    data: { userId, title: content.split(/[.\n]/)[0]!.slice(0, 200), content },
+  });
+  revalidatePath("/today");
+  revalidatePath("/notes");
+  return {};
+}
+
+/** Notes can only be removed by their owner; both Home and the Notes archive
+ * use this instead of trusting a client-side list mutation. */
+export async function deleteNoteAction(noteId: string): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const note = await db.note.findFirst({ where: { id: noteId, userId }, select: { id: true } });
+  if (!note) return { error: "That note no longer exists." };
+  await db.note.delete({ where: { id: note.id } });
+  revalidatePath("/today");
+  revalidatePath("/notes");
+  return {};
 }
 
 export async function addTaskAction(input: AddTaskInput): Promise<AddTaskResult> {
@@ -121,6 +218,7 @@ export async function addTaskAction(input: AddTaskInput): Promise<AddTaskResult>
       ...(dueAt !== undefined ? { dueAt, dueHasTime: input.dueHasTime ?? false } : {}),
       note: input.note ?? null,
       remindAt,
+      priority: input.priority,
     },
     {
       timeZone: settings?.timezone ?? "UTC",

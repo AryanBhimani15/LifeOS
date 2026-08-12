@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { requireAllOwned, requireOwned, requireOwnedIfPresent } from "@/lib/authz";
+import { requireAllOwned, requireOwned, requireOwnedIfPresent, type DbClient } from "@/lib/authz";
 import { badRequest, notFound } from "@/lib/errors";
 import { parseCapture } from "@/lib/nlp/parse-capture";
 import { tidyTitle } from "@/lib/validation/capture";
@@ -40,10 +40,11 @@ const MIN_RANK_GAP = 0.0001;
 async function validateForeignKeys(
   userId: string,
   input: { projectId?: string | null; parentId?: string | null; tagIds?: string[] },
+  client: DbClient = db,
 ) {
-  await requireOwnedIfPresent("project", input.projectId, userId);
-  await requireOwnedIfPresent("task", input.parentId, userId);
-  if (input.tagIds?.length) await requireAllOwned("tag", input.tagIds, userId);
+  await requireOwnedIfPresent("project", input.projectId, userId, client);
+  await requireOwnedIfPresent("task", input.parentId, userId, client);
+  if (input.tagIds?.length) await requireAllOwned("tag", input.tagIds, userId, client);
 }
 
 export async function listTasks(userId: string, query: TaskQuery) {
@@ -95,23 +96,31 @@ export async function getTask(userId: string, id: string) {
 }
 
 export async function createTask(userId: string, input: CreateTaskInput) {
-  await validateForeignKeys(userId, input);
+  return db.$transaction((tx) => createTaskInTransaction(tx, userId, input));
+}
+
+/**
+ * The canonical write, usable by larger atomic workflows (notably AI plans).
+ * Keeping this inside the caller's transaction preserves exactly-once plan
+ * execution while giving every task the same ordering and project activity.
+ */
+export async function createTaskInTransaction(client: DbClient, userId: string, input: CreateTaskInput) {
+  await validateForeignKeys(userId, input, client);
 
   if (input.parentId && input.recurrence) {
     throw badRequest("A subtask cannot have its own recurrence rule");
   }
 
   // Place new tasks at the end of their column.
-  const last = await db.task.findFirst({
+  const last = await client.task.findFirst({
     where: { userId, status: input.status, parentId: input.parentId ?? null },
     orderBy: { boardOrder: "desc" },
     select: { boardOrder: true },
   });
   const boardOrder = (last?.boardOrder ?? 0) + RANK_GAP;
 
-  return db.$transaction(async (tx) => {
-    const rule = input.recurrence
-      ? await tx.recurrenceRule.create({
+  const rule = input.recurrence
+    ? await client.recurrenceRule.create({
           data: {
             userId,
             freq: input.recurrence.freq,
@@ -127,9 +136,9 @@ export async function createTask(userId: string, input: CreateTaskInput) {
             count: input.recurrence.count ?? null,
           },
         })
-      : null;
+    : null;
 
-    const task = await tx.task.create({
+  const task = await client.task.create({
       data: {
         userId,
         title: input.title,
@@ -154,7 +163,7 @@ export async function createTask(userId: string, input: CreateTaskInput) {
     });
 
     if (task.projectId) {
-      await tx.projectActivity.create({
+      await client.projectActivity.create({
         data: {
           projectId: task.projectId,
           userId,
@@ -165,8 +174,7 @@ export async function createTask(userId: string, input: CreateTaskInput) {
       });
     }
 
-    return task;
-  });
+  return task;
 }
 
 /**
@@ -196,6 +204,7 @@ export interface CaptureTaskInput {
   remindAt?: Date | null;
   projectId?: string | null;
   parentId?: string | null;
+  priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 }
 
 export interface CaptureTaskResult {
@@ -225,9 +234,9 @@ export async function captureTask(
     title: tidyTitle(parsed.title).slice(0, 200),
     description: input.note?.trim() || null,
     status: "TODO",
-    // Nothing is inferred about importance. A captured task is an ordinary one
-    // until the user says otherwise.
-    priority: "MEDIUM",
+    // Nothing is inferred about importance, but a choice in the capture
+    // sheet is preserved instead of being silently reset to medium.
+    priority: input.priority ?? "MEDIUM",
     dueAt: dueAt ?? null,
     dueHasTime,
     projectId: input.projectId ?? null,
@@ -271,6 +280,10 @@ export async function getTaskDetail(userId: string, id: string) {
         select: { id: true, remindAt: true },
         orderBy: { remindAt: "asc" },
         take: 1,
+      },
+      documents: {
+        select: { id: true, name: true, mimeType: true, sizeBytes: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
       },
       events: {
         select: { id: true, title: true, startAt: true, endAt: true },

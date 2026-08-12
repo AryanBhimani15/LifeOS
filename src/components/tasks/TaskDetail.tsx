@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Bell, CalendarDays, Check, ListTree, Loader2, StickyNote, Trash2, X } from "lucide-react";
 import { useToast } from "@/components/ToastProvider";
 import { deleteTaskAction, updateTaskDetailAction } from "@/app/(app)/actions";
+import { Attachments, type AttachmentData } from "@/components/events/Attachments";
 
 /**
  * A task, opened.
@@ -29,6 +30,7 @@ export interface TaskDetailData {
   reminders: { id: string; remindAt: string }[];
   event: { id: string; title: string; startAt: string; endAt: string } | null;
   project: { name: string } | null;
+  documents: AttachmentData[];
 }
 
 function formatWhen(iso: string, hasTime: boolean): string {
@@ -213,6 +215,14 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
             </p>
           </section>
         )}
+
+        <section className="task-sheet-section task-sheet-attachments">
+          <Attachments
+            uploadUrl={`/api/tasks/${encodeURIComponent(task.id)}/attachments`}
+            attachments={task.documents}
+            title="Resources"
+          />
+        </section>
 
         {/* The distinction the architecture exists for: a deadline is a date on
             the task, an exam is an Event the task points at. */}

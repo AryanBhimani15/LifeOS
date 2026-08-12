@@ -29,6 +29,15 @@ if (!/_test(\?|$)/.test(testUrl)) {
 process.env.DATABASE_URL = testUrl;
 process.env.AUTH_SECRET ??= "test-secret-not-used-for-real-sessions";
 
+// Attachment tests write real bytes.
+//
+// The driver is FORCED to local, not defaulted: .env configures Azure, and a
+// test run must never write to — or delete from — a real cloud container. This
+// is the same reasoning as the DATABASE_URL_TEST guard above, and it is not
+// optional.
+process.env.STORAGE_DRIVER = "local";
+process.env.STORAGE_LOCAL_DIR = ".storage-test";
+
 beforeAll(() => {
   // Surfaces immediately if the schema was never pushed to the test database.
   if (process.env.NODE_ENV === "production") {

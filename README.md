@@ -5,9 +5,10 @@ notes, journal, and expenses in one application, with a natural-language command
 bar that turns a sentence into structured, confirmed actions.
 
 > **Status: web app and mobile companion working; several sections still stubs.**
-> Auth, onboarding, the Today view, the Kanban board, the calorie burn tracker and
-> the AI command centre all work end to end against Postgres, covered by 128 server
-> tests plus browser and API contract suites. Projects, Calendar, Goals, Habits,
+> Auth, onboarding, the Today view, the Kanban board, task capture, events with
+> file attachments, the calorie burn tracker and the AI command centre all work
+> end to end against Postgres, covered by 198 server tests plus browser and API
+> contract suites. Projects, Calendar, Goals, Habits,
 > Notes, Journal and Money have schema and pages but no APIs yet, and say so on
 > screen rather than showing sample data. See [Status](#status) for the breakdown.
 
@@ -24,7 +25,11 @@ bar that turns a sentence into structured, confirmed actions.
   weekly training plan, two starter goals with milestones, and two habits. The
   answers are used, not filed.
 - **Effortless capture** — today's planned session is logged with one tap, and a
-  task is one field and Enter. Neither needs a form.
+  task is one field and Enter. Neither needs a form. Dates are read from the
+  sentence by a deterministic parser that never invents one.
+- **Events and exams** — an event *happens* between two times rather than being
+  *due* at one, and gets its own page: the note the lecturer actually gave,
+  preparation tasks, and file attachments. Every relationship is optional.
 - **Calorie burn** — an activity catalogue in Postgres, a calculator that prices
   every result server-side, saved history with delete, and daily/weekly totals
   bucketed by the user's own calendar.
@@ -73,7 +78,8 @@ npm run dev               # http://localhost:3000
 Every variable is documented in [`.env.example`](.env.example). Required:
 `DATABASE_URL`, `DATABASE_URL_TEST`, `AUTH_SECRET`. Optional: `GEMINI_API_KEY`
 (AI features return a clear error without it), `AI_MODEL`,
-`TRUST_PROXY_HEADERS`.
+`TRUST_PROXY_HEADERS`, and `STORAGE_DRIVER` (`local` by default; `azure` needs
+`AZURE_STORAGE_CONNECTION_STRING` and `AZURE_STORAGE_CONTAINER`).
 
 ## Mobile companion
 
@@ -141,7 +147,8 @@ plan and ask a question rather than guessing.
 - Auth (registration, login, sessions, route protection)
 - Request pipeline (auth, rate limiting, validation, error mapping)
 - Ownership enforcement and cross-user isolation
-- Tasks API
+- Tasks API, one capture pipeline, deterministic date parsing
+- Events API and file attachments (storage driver: local or Azure Blob)
 - Fitness API (profile, activities, calculate, history, stats)
 - AI command centre (plan, resolve, confirm, execute, query)
 - Audit logging, money handling, timezone-correct dates

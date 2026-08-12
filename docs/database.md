@@ -25,7 +25,7 @@ the parts whose reasoning is not obvious from the schema.
 | Growth | `goals`, `milestones`, `goal_progress`, `habits`, `habit_completions`, `journal_entries` |
 | Money | `expenses`, `expense_categories`, `budgets` |
 | Fitness | `fitness_profiles`, `activities`, `workout_plans`, `workout_plan_sessions`, `workout_entries` |
-| Other | `documents`, `ai_command_plans`, `audit_logs` |
+| Other | `documents` (attachments; optional `eventId`), `ai_command_plans`, `audit_logs` |
 
 ## Relationship patterns
 

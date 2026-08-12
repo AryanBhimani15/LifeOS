@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut, Moon, Sun } from "lucide-react";
+import Link from "next/link";
+import { Bell, Command, LogOut, Moon, Search, Sun } from "lucide-react";
 import { signOutAction } from "@/app/(app)/actions";
 import { useTheme } from "@/lib/theme";
 
@@ -19,8 +20,19 @@ import { useTheme } from "@/lib/theme";
 export function TopBar() {
   const { isDark, toggle } = useTheme();
 
+  function openCommand() {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+    );
+  }
+
   return (
     <div className="topbar-utility">
+      <button type="button" className="topbar-ask" onClick={openCommand}>
+        <Search size={16} />
+        <span>Ask LifeOS anything...</span>
+        <kbd><Command size={12} /> K</kbd>
+      </button>
       <div
         className="theme-seg"
         role="group"
@@ -50,10 +62,14 @@ export function TopBar() {
           <span>Dark</span>
         </button>
       </div>
-
+      <button type="button" className="topbar-icon" aria-label="Notifications" title="Notifications">
+        <Bell size={18} strokeWidth={1.9} />
+        <span className="topbar-notification-dot" />
+      </button>
+      <Link href="/profile" className="topbar-profile" aria-label="Open profile" title="Profile">A</Link>
       <form action={signOutAction}>
-        <button type="submit" className="signout-button">
-          <LogOut size={14} strokeWidth={2} />
+        <button type="submit" className="topbar-signout" title="Sign out" aria-label="Sign out">
+          <LogOut size={16} />
           <span>Sign out</span>
         </button>
       </form>

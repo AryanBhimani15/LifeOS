@@ -290,6 +290,43 @@ async function main() {
     });
   }
 
+  // ---- An exam tomorrow, with everything that hangs off one ---------------
+  //
+  // The richest object in the app: an event with a kind, a place, the note a
+  // lecturer actually said, and preparation tasks. Attachments are left empty
+  // on purpose so the page's "nothing yet" state is what a fresh account sees.
+  {
+    const examStart = new Date(todayAtLocalHour(10).getTime() + 24 * 3_600_000);
+    const prep = await db.task.create({
+      data: {
+        userId,
+        title: "Revise normalization (1NF to BCNF)",
+        status: "IN_PROGRESS",
+        boardOrder: 9_000,
+        subtasks: {
+          create: [
+            { userId, title: "Practice SQL joins queries", boardOrder: 9_100 },
+            { userId, title: "Redo the tutorial sheet", boardOrder: 9_200 },
+          ],
+        },
+      },
+    });
+
+    await db.event.create({
+      data: {
+        userId,
+        taskId: prep.id,
+        title: "DBMS CIA 2",
+        kind: "EXAM",
+        location: "Room 304, Block B",
+        description:
+          "Focus heavily on normalization and SQL joins. No questions from ER diagrams.",
+        startAt: examStart,
+        endAt: new Date(examStart.getTime() + 1.5 * 3_600_000),
+      },
+    });
+  }
+
   // ---- Habits with real completion history --------------------------------
   const habits: { name: string; color: string; streak: number; doneToday: boolean }[] = [
     { name: "Workout", color: "#10b981", streak: 12, doneToday: false }, // at risk

@@ -1,310 +1,123 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CalendarDays, Check, Loader2, Plus, StickyNote, X } from "lucide-react";
-import { useToast } from "@/components/ToastProvider";
+import { Bell, CalendarDays, CheckSquare, GraduationCap, Loader2, Plus, SlidersHorizontal, StickyNote, X } from "lucide-react";
 import { parseCapture } from "@/lib/nlp/parse-capture";
-import { addTaskAction, type AddTaskResult } from "@/app/(app)/actions";
+import { addEventAction, addTaskAction, type AddTaskResult } from "@/app/(app)/actions";
+import { TaskAdded } from "./TaskAdded";
 
-/**
- * The one place a task is created.
- *
- * The shape of this is the whole point of the feature: type, optionally pick a
- * day, add. There is no project, no priority, no status and no type — those are
- * organisation, and organisation is something you do to a task later, if ever.
- * Anything beyond the sentence lives behind a disclosure that most captures
- * will never open.
- *
- * The date is read from the sentence as you type and shown as a chip, so
- * "renew domain tomorrow" needs no second step. Tapping a chip overrides the
- * reading; clearing it means no date at all, which is different from not having
- * said one and is passed through as such.
- */
+type CaptureKind = "TASK" | "EXAM" | "EVENT" | "REMINDER";
+const TYPES: { id: CaptureKind; label: string; detail: string; Icon: typeof CheckSquare }[] = [
+  { id: "TASK", label: "Task", detail: "Something to do", Icon: CheckSquare },
+  { id: "EXAM", label: "Exam", detail: "An exam or test", Icon: GraduationCap },
+  { id: "EVENT", label: "Event", detail: "Something on calendar", Icon: CalendarDays },
+  { id: "REMINDER", label: "Reminder", detail: "Get reminded", Icon: Bell },
+];
 
-type Chip = "today" | "tomorrow" | "week" | "pick";
-
-interface Resolved {
-  /** Local ISO the server can parse, or null for "deliberately no date". */
-  iso: string | null;
-  hasTime: boolean;
-  label: string;
-}
-
-/** End of the given local day — a deadline is "by then", not "at midnight". */
-function endOfLocalDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 0, 0);
-  return d;
-}
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function chipDate(chip: Exclude<Chip, "pick">): Date {
-  const now = new Date();
-  if (chip === "today") return endOfLocalDay(now);
-  if (chip === "tomorrow") return endOfLocalDay(addDays(now, 1));
-  // "This week" is the end of it — Sunday, or today if it already is.
-  const daysToSunday = (7 - now.getDay()) % 7;
-  return endOfLocalDay(addDays(now, daysToSunday));
-}
-
-function formatWhen(date: Date, hasTime: boolean): string {
-  const now = new Date();
-  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-
-  const day = sameDay(date, now)
-    ? "Today"
-    : sameDay(date, addDays(now, 1))
-      ? "Tomorrow"
-      : new Intl.DateTimeFormat("en-US", {
-          weekday: date.getTime() - now.getTime() < 6 * 86_400_000 ? "long" : undefined,
-          month: "short",
-          day: "numeric",
-        }).format(date);
-
-  if (!hasTime) return day;
-  const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date);
-  return `${day} · ${time}`;
-}
-
-/** A `datetime-local` value for a Date, in the browser's own zone. */
-function toLocalInput(date: Date): string {
+function localDate(value: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+function quickDate(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return localDate(date);
+}
+function endOfWeek() {
+  const date = new Date();
+  date.setDate(date.getDate() + ((7 - date.getDay()) % 7));
+  return localDate(date);
+}
+function labelDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value}T12:00:00`));
 }
 
-export function AddTask({
-  placeholder = "What do you need to do?",
-  autoFocus = false,
-  onAdded,
-}: {
-  placeholder?: string;
-  autoFocus?: boolean;
-  onAdded?: (result: AddTaskResult) => void;
-}) {
+/** The single, type-aware capture sheet used by Today and the task board. */
+export function AddTask({ placeholder = "What do you need to do?", onAdded }: { placeholder?: string; autoFocus?: boolean; onAdded?: (result: AddTaskResult) => void }) {
   const router = useRouter();
-  const { toast } = useToast();
-  const inputRef = useRef<HTMLInputElement>(null);
-
+  const input = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<CaptureKind>("TASK");
   const [text, setText] = useState("");
-  const [override, setOverride] = useState<Resolved | null>(null);
+  // `null` means “let natural-language detection drive this field”; an empty
+  // string is a deliberate user choice to clear it. That distinction lets a
+  // sentence such as “CIA on Friday” fill in the date without an effect.
+  const [manualDate, setManualDate] = useState<string | null>(null);
+  const [manualTime, setManualTime] = useState<string | null>(null);
+  const [priority, setPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
+  const [editingDate, setEditingDate] = useState(false);
+  const [showTime, setShowTime] = useState(false);
   const [note, setNote] = useState("");
-  const [remindAt, setRemindAt] = useState("");
-  const [showNote, setShowNote] = useState(false);
-  const [showReminder, setShowReminder] = useState(false);
-  const [showPicker, setShowPicker] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [success, setSuccess] = useState<{ title: string; when: string | null; href: string } | null>(null);
 
-  /**
-   * The same parser the server uses, run as you type purely to preview what it
-   * will do. The server parses again on submit — this copy is a courtesy, never
-   * the source of truth.
-   */
-  const parsed = useMemo(() => {
-    if (!text.trim()) return null;
-    return parseCapture(text, {
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-  }, [text]);
+  const parsed = useMemo(() => text.trim() ? parseCapture(text, { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) : null, [text]);
+  const detectedDate = parsed?.dueAt ? localDate(parsed.dueAt) : "";
+  const detectedTime = parsed?.dueAt && parsed.dueHasTime
+    ? `${String(parsed.dueAt.getHours()).padStart(2, "0")}:${String(parsed.dueAt.getMinutes()).padStart(2, "0")}`
+    : "";
+  const date = manualDate ?? detectedDate;
+  const time = manualTime ?? detectedTime;
+  useEffect(() => {
+    if (!open || success) return;
+    const frame = requestAnimationFrame(() => input.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open, success]);
 
-  const shown: Resolved | null = override
-    ? override
-    : parsed?.dueAt
-      ? {
-          iso: parsed.dueAt.toISOString(),
-          hasTime: parsed.dueHasTime,
-          label: formatWhen(parsed.dueAt, parsed.dueHasTime),
-        }
-      : null;
+  const close = () => { if (!pending) { setOpen(false); setSuccess(null); setError(null); } };
+  const reset = () => { setText(""); setManualDate(null); setManualTime(null); setPriority("MEDIUM"); setEditingDate(false); setShowTime(false); setNote(""); setShowMore(false); setKind("TASK"); setError(null); };
+  const setQuick = (value: string) => { setManualDate(value); setError(null); };
 
-  const title = parsed?.title ?? text.trim();
-
-  const reset = useCallback(() => {
-    setText("");
-    setOverride(null);
-    setNote("");
-    setRemindAt("");
-    setShowNote(false);
-    setShowReminder(false);
-    setShowPicker(false);
+  const submit = () => {
+    if (!text.trim() || pending) return;
     setError(null);
-  }, []);
-
-  const submit = useCallback(() => {
-    const value = text.trim();
-    if (!value || pending) return;
-
     startTransition(async () => {
-      const result = await addTaskAction({
-        text: value,
-        // `undefined` lets the server read the sentence; an explicit choice
-        // (including "no date") is sent through as itself.
-        ...(override ? { dueAt: override.iso, dueHasTime: override.hasTime } : {}),
-        note: note.trim() || null,
-        remindAt: remindAt ? new Date(remindAt).toISOString() : null,
-      });
-
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-
-      toast(`Added “${result.task?.title ?? value}”.`);
-      reset();
-      inputRef.current?.focus();
-      router.refresh();
-      onAdded?.(result);
+      try {
+        if (kind === "EXAM" || kind === "EVENT") {
+          const result = await addEventAction({ text: parsed?.title || text, kind, date, time: time || null, note });
+          if (result.error || !result.event) return setError(result.error ?? "Couldn't add that event.");
+          setSuccess({ title: result.event.title, when: date ? `${labelDate(date)}${time ? ` · ${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(`2000-01-01T${time}`))}` : ""}` : null, href: `/events/${result.event.id}` });
+        } else {
+          const dueAt = date ? new Date(`${date}T${time || "23:59"}`).toISOString() : undefined;
+          const result = await addTaskAction({ text, ...(dueAt ? { dueAt, dueHasTime: Boolean(time) } : {}), priority, note: note || null, remindAt: kind === "REMINDER" && date && time ? dueAt : null });
+          if (result.error || !result.task) return setError(result.error ?? "Couldn't add task.");
+          setSuccess({ title: result.task.title, when: result.task.dueAt ? `${labelDate(date)}${time ? ` · ${time}` : ""}` : null, href: `/tasks?focus=${result.task.id}` });
+          onAdded?.(result);
+        }
+        reset();
+        router.refresh();
+      } catch { setError("Couldn't save that. Your text is still here — try again."); }
     });
-  }, [text, pending, override, note, remindAt, toast, reset, router, onAdded]);
-
-  const pickChip = (chip: Chip) => {
-    setError(null);
-    if (chip === "pick") {
-      setShowPicker((v) => !v);
-      return;
-    }
-    const date = chipDate(chip);
-    setOverride({ iso: date.toISOString(), hasTime: false, label: formatWhen(date, false) });
-    setShowPicker(false);
   };
 
-  return (
-    <div className="add-task">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <div className="add-task-field">
-          <Plus size={16} />
-          <input
-            ref={inputRef}
-            value={text}
-            autoFocus={autoFocus}
-            onChange={(e) => {
-              setText(e.target.value);
-              setError(null);
-            }}
-            placeholder={placeholder}
-            maxLength={500}
-            aria-label="What do you need to do?"
-          />
-
-          {/* What the sentence was understood to mean, always visible and
-              always removable. A date the user cannot see is a date they
-              cannot correct. */}
-          {shown && (
-            <button
-              type="button"
-              className="add-task-when"
-              onClick={() => setOverride({ iso: null, hasTime: false, label: "" })}
-              title="Remove the date"
-            >
-              <CalendarDays size={13} /> {shown.label} <X size={12} />
-            </button>
-          )}
-
-          <button type="submit" className="add-task-submit" disabled={!text.trim() || pending}>
-            {pending ? <Loader2 size={15} className="spin" /> : <Check size={15} />}
-            <span>Add</span>
-          </button>
-        </div>
-
-        {/* The title after the date is stripped out, so it is obvious that
-            "tomorrow" became a date rather than part of the name. */}
-        {shown && title && title !== text.trim() && (
-          <p className="add-task-preview">
-            Saving as <b>{title}</b>
-          </p>
-        )}
-
-        <div className="add-task-row">
-          <div className="add-task-chips" role="group" aria-label="When">
-            <button type="button" onClick={() => pickChip("today")}>
-              Today
-            </button>
-            <button type="button" onClick={() => pickChip("tomorrow")}>
-              Tomorrow
-            </button>
-            <button type="button" onClick={() => pickChip("week")}>
-              This week
-            </button>
-            <button
-              type="button"
-              className={showPicker ? "is-open" : ""}
-              onClick={() => pickChip("pick")}
-            >
-              <CalendarDays size={13} /> Pick
-            </button>
-          </div>
-
-          <div className="add-task-optional">
-            <button
-              type="button"
-              className={showNote ? "is-on" : ""}
-              onClick={() => setShowNote((v) => !v)}
-            >
-              <StickyNote size={13} /> Note
-            </button>
-            <button
-              type="button"
-              className={showReminder ? "is-on" : ""}
-              onClick={() => setShowReminder((v) => !v)}
-            >
-              <Bell size={13} /> Remind
-            </button>
-          </div>
-        </div>
-
-        {showPicker && (
-          <input
-            type="datetime-local"
-            className="add-task-picker"
-            defaultValue={toLocalInput(shown?.iso ? new Date(shown.iso) : chipDate("today"))}
-            onChange={(e) => {
-              const date = new Date(e.target.value);
-              if (Number.isNaN(date.getTime())) return;
-              setOverride({ iso: date.toISOString(), hasTime: true, label: formatWhen(date, true) });
-            }}
-            aria-label="Pick a date and time"
-          />
-        )}
-
-        {showNote && (
-          <textarea
-            className="add-task-note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add a note…"
-            rows={2}
-            maxLength={10_000}
-            aria-label="Note"
-          />
-        )}
-
-        {showReminder && (
-          <input
-            type="datetime-local"
-            className="add-task-picker"
-            value={remindAt}
-            onChange={(e) => setRemindAt(e.target.value)}
-            aria-label="Remind me at"
-          />
-        )}
-
-        {error && (
-          <p className="add-task-error" role="alert">
-            {error}
-          </p>
-        )}
-      </form>
-    </div>
-  );
+  return <>
+    <button type="button" className="task-capture-launcher" onClick={() => setOpen(true)} aria-haspopup="dialog"><span><Plus size={17} /> {placeholder}</span><span className="task-capture-launcher-action">Add something</span></button>
+    {open && <div className="task-create-dialog" role="dialog" aria-modal="true" aria-label="Add something">
+      <button type="button" className="task-create-scrim" aria-label="Close add" onClick={close} />
+      <div className="task-create-panel task-create-expanded">
+        {success ? <TaskAdded title={success.title} when={success.when} onAddAnother={() => { setSuccess(null); requestAnimationFrame(() => input.current?.focus()); }} onViewTask={() => { setOpen(false); router.push(success.href); }} /> :
+          <form className="task-create-form task-create-unified" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+            <button type="button" className="task-create-close" onClick={close} aria-label="Close"><X size={18} /></button>
+            <header className="task-create-title"><span><Plus size={16} /></span><h2>Add something</h2></header>
+            <div className="task-create-prompt"><input ref={input} value={text} onChange={(event) => { setText(event.target.value); setError(null); }} placeholder="What would you like to add?" maxLength={500} /><span>✦</span></div>
+            <div className="capture-types">{TYPES.map(({ id, label, detail, Icon }) => <button key={id} type="button" className={kind === id ? "is-selected" : ""} onClick={() => setKind(id)}><Icon size={19} /><span><b>{label}</b><small>{detail}</small></span></button>)}</div>
+            {parsed?.dueAt && !editingDate ? <div className="capture-detected"><CalendarDays size={14} /><span>Due {labelDate(date)}{time ? ` · ${time}` : ""}</span><button type="button" onClick={() => setEditingDate(true)}>Change</button></div> : <div className="capture-schedule">
+              <button type="button" onClick={() => setQuick(quickDate(0))}><CalendarDays size={15} /> Today</button><button type="button" onClick={() => setQuick(quickDate(1))}>Tomorrow</button><button type="button" onClick={() => setQuick(endOfWeek())}>This week</button>
+              <label><CalendarDays size={15} /><input type="date" value={date} onChange={(event) => setManualDate(event.target.value)} aria-label="Date (optional for tasks)" /></label>
+            </div>}
+            <div className="capture-priority"><span><SlidersHorizontal size={14} /> Priority</span>{(["LOW", "MEDIUM", "HIGH"] as const).map((value) => <button key={value} type="button" className={priority === value ? `is-${value.toLowerCase()}` : ""} onClick={() => setPriority(value)}>{value[0]}{value.slice(1).toLowerCase()}</button>)}</div>
+            <div className="capture-time-slider"><button type="button" onClick={() => setShowTime((shown) => !shown)}>{showTime ? "Remove time" : "Add time (optional)"}</button>{showTime && <><input type="range" min="0" max="1439" step="15" value={time ? Number(time.slice(0, 2)) * 60 + Number(time.slice(3)) : 540} onChange={(event) => { const minutes = Number(event.target.value); setManualTime(`${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`); }} aria-label="Task time" /><strong>{time || "9:00 AM"}</strong></>}</div>
+            {(kind === "EXAM" || kind === "EVENT") && !date && <p className="capture-date-help">Choose a date for an {kind.toLowerCase()}; time is optional.</p>}
+            <button type="button" className="task-create-more" onClick={() => setShowMore((value) => !value)}><StickyNote size={15} /> <span>Add details or note</span></button>
+            {showMore && <textarea className="capture-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Important details, preparation, or anything worth remembering…" rows={3} />}
+            {error && <p className="task-create-error" role="alert">{error}</p>}
+            <footer><button type="button" className="task-create-cancel" onClick={close}>Cancel</button><button type="submit" className="task-create-submit" disabled={!text.trim() || pending}>{pending && <Loader2 className="spin" size={15} />}{pending ? "Adding…" : "Add"}</button></footer>
+            <p className="task-create-hint">Natural language works too! “DBMS CIA 2 on September 11 at 10am”</p>
+          </form>}
+      </div>
+    </div>}
+  </>;
 }

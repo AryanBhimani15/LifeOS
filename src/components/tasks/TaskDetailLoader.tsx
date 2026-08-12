@@ -36,6 +36,7 @@ export function TaskDetailLoader({
           ...payload,
           dueAt: payload.dueAt ?? null,
           reminders: payload.reminders ?? [],
+          documents: payload.documents ?? [],
           subtasks: payload.subtasks ?? [],
           event: payload.events?.[0] ?? null,
         });

@@ -46,24 +46,24 @@ model User {
   sessions Session[]
   settings UserSettings?
 
-  projects     Project[]
-  tasks        Task[]
-  events       Event[]
-  notes        Note[]
-  noteFolders  NoteFolder[]
-  habits       Habit[]
-  habitLogs    HabitCompletion[]
-  goals        Goal[]
-  journal      JournalEntry[]
-  expenses     Expense[]
-  budgets      Budget[]
-  categories   ExpenseCategory[]
-  documents    Document[]
-  tags         Tag[]
-  reminders    Reminder[]
-  auditLogs    AuditLog[]
-  commandPlans AiCommandPlan[]
-  recurrences  RecurrenceRule[]
+  projects      Project[]
+  tasks         Task[]
+  events        Event[]
+  notes         Note[]
+  noteFolders   NoteFolder[]
+  habits        Habit[]
+  habitLogs     HabitCompletion[]
+  goals         Goal[]
+  journal       JournalEntry[]
+  expenses      Expense[]
+  budgets       Budget[]
+  categories    ExpenseCategory[]
+  documents     Document[]
+  tags          Tag[]
+  reminders     Reminder[]
+  auditLogs     AuditLog[]
+  commandPlans  AiCommandPlan[]
+  recurrences   RecurrenceRule[]
   refreshTokens RefreshToken[]
   devices       Device[]
   fitness       FitnessProfile?
@@ -211,6 +211,18 @@ enum PlanStatus {
   EXECUTED
   REJECTED
   EXPIRED
+}
+
+/// What an event actually is, so the UI can say "Exam · 10:00–11:30" instead of
+/// labelling every date "Due". Deliberately a small closed set on the existing
+/// Event model rather than a separate Exam table — an exam is an event with a
+/// different presentation, not a different shape.
+enum EventKind {
+  EVENT
+  EXAM
+  CLASS
+  MEETING
+  DEADLINE
 }
 
 enum Sex {
@@ -369,6 +381,7 @@ model Task {
   reminders  Reminder[]
   noteLinks  NoteLink[]
   tags       TaskTag[]
+  documents  Document[]
 
   @@unique([seriesId, occurrenceOn])
   @@index([userId, status, dueAt])
@@ -399,16 +412,17 @@ model Reminder {
 // ---------------------------------------------------------------------------
 
 model Event {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   projectId   String?
   taskId      String?
   title       String
-  description String?  @db.Text
+  description String?   @db.Text
   location    String?
+  kind        EventKind @default(EVENT)
   startAt     DateTime
   endAt       DateTime
-  allDay      Boolean  @default(false)
+  allDay      Boolean   @default(false)
   color       String?
 
   recurrenceRuleId String?
@@ -425,6 +439,8 @@ model Event {
   recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
   series     Event?          @relation("EventSeries", fields: [seriesId], references: [id], onDelete: SetNull)
   instances  Event[]         @relation("EventSeries")
+  documents  Document[]
+  tags       EventTag[]
 
   @@unique([seriesId, occurrenceOn])
   @@index([userId, startAt])
@@ -459,11 +475,11 @@ model Note {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project  Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  folder   NoteFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  links    NoteLink[]
-  tags     NoteTag[]
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  folder  NoteFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  links   NoteLink[]
+  tags    NoteTag[]
 
   @@index([userId, updatedAt])
   @@index([userId, folderId])
@@ -516,13 +532,14 @@ model Tag {
   color     String   @default("#64748b")
   createdAt DateTime @default(now())
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   tasks    TaskTag[]
   notes    NoteTag[]
   projects ProjectTag[]
   expenses ExpenseTag[]
   goals    GoalTag[]
   journal  JournalTag[]
+  events   EventTag[]
 
   @@unique([userId, name])
   @@map("tags")
@@ -538,6 +555,18 @@ model TaskTag {
   @@id([taskId, tagId])
   @@index([tagId])
   @@map("task_tags")
+}
+
+model EventTag {
+  eventId String
+  tagId   String
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, tagId])
+  @@index([tagId])
+  @@map("event_tags")
 }
 
 model NoteTag {
@@ -672,8 +701,8 @@ model Goal {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
   milestones Milestone[]
   progress   GoalProgress[]
   journal    JournalEntry[]
@@ -734,10 +763,10 @@ model JournalEntry {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  goal     Goal?     @relation(fields: [goalId], references: [id], onDelete: SetNull)
-  tags     JournalTag[]
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal    Goal?        @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  tags    JournalTag[]
 
   @@unique([userId, entryDate])
   @@index([userId, entryDate])
@@ -764,18 +793,18 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id         String      @id @default(cuid())
-  userId     String
-  categoryId String?
-  kind       ExpenseKind @default(EXPENSE)
+  id          String      @id @default(cuid())
+  userId      String
+  categoryId  String?
+  kind        ExpenseKind @default(EXPENSE)
   /// Minor units (cents). Never a float — binary floats cannot represent 0.10.
   amountMinor Int
-  currency    String     @default("USD")
+  currency    String      @default("USD")
   description String
   merchant    String?
-  spentOn     DateTime   @db.Date
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  spentOn     DateTime    @db.Date
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -811,6 +840,12 @@ model Budget {
 model Document {
   id         String   @id @default(cuid())
   userId     String
+  /// Optional owner. A document can sit on its own or belong to an event; it is
+  /// never forced to belong to anything, and deleting the event takes its
+  /// attachments with it.
+  eventId    String?
+  /// A resource can belong to a normal task as well as an event/exam.
+  taskId     String?
   name       String
   mimeType   String
   sizeBytes  Int
@@ -819,9 +854,13 @@ model Document {
   storageKey String
   createdAt  DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  task  Task?  @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([eventId])
+  @@index([taskId])
   @@map("documents")
 }
 
@@ -833,22 +872,22 @@ model Document {
 /// actions require a second request quoting this row's id, so confirmation cannot
 /// be bypassed by a crafted client request.
 model AiCommandPlan {
-  id           String     @id @default(cuid())
-  userId       String
-  rawInput     String     @db.Text
-  actions      Json /// validated AiAction[] — never raw model output
-  summary      String     @db.Text
-  needsConfirm Boolean    @default(false)
-  status       PlanStatus @default(PENDING)
-  model        String
-  result       Json?
-  error        String?    @db.Text
-  expiresAt    DateTime
-  executedAt   DateTime?
+  id             String     @id @default(cuid())
+  userId         String
+  rawInput       String     @db.Text
+  actions        Json /// validated AiAction[] — never raw model output
+  summary        String     @db.Text
+  needsConfirm   Boolean    @default(false)
+  status         PlanStatus @default(PENDING)
+  model          String
+  result         Json?
+  error          String?    @db.Text
+  expiresAt      DateTime
+  executedAt     DateTime?
   /// Client-supplied key. A retry after a dropped response replays the stored
   /// result instead of erroring on a plan that already ran.
   idempotencyKey String?
-  createdAt    DateTime   @default(now())
+  createdAt      DateTime   @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -955,8 +994,8 @@ model FitnessProfile {
   heightMm      Int /// Canonical height in millimetres.
   weightGrams   Int /// Canonical weight in grams.
   activityLevel ActivityLevel
-  lifeContext   LifeContext @default(OTHER)
-  primaryGoal   PrimaryGoal @default(STAY_HEALTHY)
+  lifeContext   LifeContext   @default(OTHER)
+  primaryGoal   PrimaryGoal   @default(STAY_HEALTHY)
 
   heightUnit String @default("cm") /// cm | ftin — display only
   weightUnit String @default("kg") /// kg | lb  — display only

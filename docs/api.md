@@ -161,6 +161,44 @@ why no personalised formula is applied.
 **`GET /api/fitness/stats`** buckets by the user's own calendar and week start,
 so a workout at 23:30 counts against that evening rather than the next UTC day.
 
+## Events and attachments
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/events` | Upcoming, nearest first |
+| `POST` | `/api/events` | Create |
+| `GET` | `/api/events/:id` | Event plus preparation tasks and attachments |
+| `PATCH` | `/api/events/:id` | Partial update |
+| `DELETE` | `/api/events/:id` | Attachments and their bytes go with it |
+| `POST` | `/api/events/:id/attachments` | Multipart, field name `files`, up to 10 |
+| `DELETE` | `/api/attachments/:id` | |
+| `GET` | `/api/attachments/:id/download` | Streams the bytes |
+
+An event **happens** between `startAt` and `endAt`; a task is **due** at
+`dueAt`. `Event.kind` (`EXAM`, `CLASS`, `MEETING`, `DEADLINE`, `EVENT`) decides
+how it is presented — an exam reads "Exam · 10:00 AM – 11:30 AM", never "Due".
+
+**Uploads are per-file, not per-batch.** The response carries both outcomes:
+
+```jsonc
+{ "attachments": [ /* saved */ ], "failed": [ { "name": "x.exe", "reason": "…" } ] }
+```
+
+One rejected file therefore never discards the ones that worked, and never
+touches the event. Types are an **allow-list** — `text/html` is refused, because
+a page served back from our own origin is stored XSS. 20 MB per file.
+
+Downloads stream through the app rather than from a public URL: that is what
+makes them private, since the query is scoped to the signed-in user. They are
+sent `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff`,
+so an uploaded file can never render as a document on this origin.
+
+**Storage** is behind a three-method interface (`src/lib/storage`). `local`
+writes to disk and needs no configuration; `azure` uses the Blob container this
+deployment already has. Adding S3 or Supabase is one file and one `case` — no
+route, repository or component knows where a file lives. Storage keys are always
+server-generated, so a filename can never become a path.
+
 ## AI command centre
 
 | Method | Path | Body |

@@ -128,6 +128,7 @@ describe("dates", () => {
     expect(dayOf(parse("submit 11 September").dueAt)).toBe("2026-09-11");
     expect(dayOf(parse("submit 11th of September").dueAt)).toBe("2026-09-11");
     expect(dayOf(parse("submit Sept 11").dueAt)).toBe("2026-09-11");
+    expect(dayOf(parse("15th august").dueAt)).toBe("2026-08-15");
   });
 
   it("rolls a month that has already passed into next year", () => {

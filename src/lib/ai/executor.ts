@@ -8,6 +8,7 @@ import { answerQuery, type QueryAnswer } from "./queries";
 import { resolveOrCreateCategory, resolveOrCreateTags } from "./resolver";
 import { assertPlanUsable, type ResolvedAction } from "./planner";
 import { planIsDestructive } from "./actions";
+import { createTaskInTransaction } from "@/lib/repositories/tasks";
 
 /**
  * Executes a previously planned, validated, resolved command.
@@ -150,30 +151,28 @@ async function runAction(
 ): Promise<void> {
   switch (action.type) {
     case "create_task": {
-      if (action.projectId) await requireOwned("project", action.projectId, userId, tx);
       const tagIds = await resolveOrCreateTags(userId, action.tagNames ?? [], tx);
-
-      const task = await tx.task.create({
-        data: {
-          userId,
-          title: action.title,
-          description: action.description ?? null,
-          dueAt: action.dueAt ? new Date(action.dueAt) : null,
-          priority: action.priority ?? "MEDIUM",
-          projectId: action.projectId,
-          tags: tagIds.length ? { create: tagIds.map((tagId) => ({ tagId })) } : undefined,
-          subtasks: action.subtasks?.length
-            ? {
-                create: action.subtasks.map((title, index) => ({
-                  userId,
-                  title,
-                  boardOrder: (index + 1) * 1024,
-                })),
-              }
-            : undefined,
-        },
-        select: { id: true, title: true },
+      const task = await createTaskInTransaction(tx, userId, {
+        title: action.title,
+        description: action.description ?? null,
+        status: "TODO",
+        priority: action.priority ?? "MEDIUM",
+        dueAt: action.dueAt ? new Date(action.dueAt) : null,
+        dueHasTime: Boolean(action.dueAt),
+        projectId: action.projectId,
+        parentId: null,
+        tagIds,
       });
+      for (const title of action.subtasks ?? []) {
+        await createTaskInTransaction(tx, userId, {
+          title,
+          status: "TODO",
+          priority: "MEDIUM",
+          parentId: task.id,
+          projectId: null,
+          tagIds: [],
+        });
+      }
       outcome.created.push({ type: "task", id: task.id, label: task.title });
       outcome.executed += 1;
       return;

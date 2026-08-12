@@ -199,12 +199,6 @@ export function CommandBar() {
 
   return (
     <>
-      <button className="command-launcher" onClick={() => setOpen(true)}>
-        <Command size={15} />
-        <span>Ask LifeOS anything</span>
-        <kbd>⌘ K</kbd>
-      </button>
-
       {open && (
         <div
           className="command-overlay"

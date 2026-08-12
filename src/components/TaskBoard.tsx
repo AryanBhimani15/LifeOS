@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -12,8 +13,8 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Trash2 } from "lucide-react";
-import { deleteTaskAction, moveTaskAction } from "@/app/(app)/actions";
+import { Check, Trash2 } from "lucide-react";
+import { completeTaskAction, deleteTaskAction, moveTaskAction } from "@/app/(app)/actions";
 import { AddTask } from "@/components/tasks/AddTask";
 import { TaskDetailLoader } from "@/components/tasks/TaskDetailLoader";
 import { useToast } from "./ToastProvider";
@@ -76,13 +77,32 @@ const PRIORITY_TONE: Record<string, string> = {
 };
 
 export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
+  const searchParams = useSearchParams();
   const [tasks, addOptimistic] = useOptimistic(initialTasks, applyOptimistic);
   const [dragging, setDragging] = useState<Task | null>(null);
   const [filter, setFilter] = useState("");
-  /** The task whose detail panel is showing, if any. */
+  /** The task whose detail panel is showing, including a creation handoff. */
   const [open, setOpen] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const openCreatedTask = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id) setOpen(id);
+    };
+    window.addEventListener("lifeos:focus-task", openCreatedTask);
+    return () => window.removeEventListener("lifeos:focus-task", openCreatedTask);
+  }, []);
+
+  useEffect(() => {
+    const focus = searchParams.get("focus");
+    if (!focus) return;
+    // Deferring to the next frame lets the navigation commit before the panel
+    // mounts. It avoids the stale-initial-state bug on client-side URL changes.
+    const frame = requestAnimationFrame(() => setOpen(focus));
+    return () => cancelAnimationFrame(frame);
+  }, [searchParams]);
 
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -151,6 +171,18 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
     });
   }
 
+  function complete(task: Task) {
+    startTransition(async () => {
+      addOptimistic({ kind: "move", taskId: task.id, status: task.status === "DONE" ? "TODO" : "DONE" });
+      try {
+        await completeTaskAction(task.id);
+        toast(task.status === "DONE" ? `Reopened “${task.title}”.` : `Completed “${task.title}”.`);
+      } catch {
+        toast("Could not update that task.", "error");
+      }
+    });
+  }
+
   return (
     <>
       {open && (
@@ -194,6 +226,7 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
                     task={task}
                     onDelete={() => remove(task)}
                     onOpen={() => setOpen(task.id)}
+                    onComplete={() => complete(task)}
                   />
                 ))
               )}
@@ -236,10 +269,12 @@ function Card({
   task,
   onDelete,
   onOpen,
+  onComplete,
 }: {
   task: Task;
   onDelete: () => void;
   onOpen: () => void;
+  onComplete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -272,6 +307,15 @@ function Card({
       {...attributes}
     >
       <CardBody task={task} />
+      <button
+        type="button"
+        className={`card-complete ${task.status === "DONE" ? "is-done" : ""}`}
+        aria-label={task.status === "DONE" ? `Reopen ${task.title}` : `Complete ${task.title}`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onComplete(); }}
+      >
+        <Check size={13} />
+      </button>
       <button
         className="card-delete"
         aria-label={`Delete ${task.title}`}
