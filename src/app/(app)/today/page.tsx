@@ -2,9 +2,10 @@ import { requireUserId } from "@/lib/session";
 import { db } from "@/lib/db";
 import { getTodayData } from "@/lib/repositories/dashboard";
 import { getProfile } from "@/lib/repositories/fitness";
-import { listUpcomingEvents } from "@/lib/repositories/events";
 import { headlineGoals } from "@/lib/repositories/goals";
 import { todayHabits } from "@/lib/repositories/habits";
+import { calendarItems, calendarSettings } from "@/lib/repositories/calendar";
+import { DEFAULT_KINDS, addDays as addCalendarDays } from "@/lib/calendar";
 import { endOfDayInZone, hourInZone, startOfDayInZone, todayInZone } from "@/lib/dates";
 import { greetingForHour } from "@/lib/fitness";
 import { HomeUpcomingAgenda } from "@/components/home/HomeUpcomingAgenda";
@@ -17,10 +18,17 @@ export const metadata = { title: "LifeOS — Home" };
 
 export default async function TodayPage() {
   const userId = await requireUserId();
-  const [data, profile, upcoming, notes, goals, habits] = await Promise.all([
+  const { today: todayIso } = await calendarSettings(userId);
+  const [data, profile, week, notes, goals, habits] = await Promise.all([
     getTodayData(userId),
     getProfile(userId),
-    listUpcomingEvents(userId, 12),
+    // The same repository the Calendar page reads, so the two cannot disagree
+    // about what is happening this week.
+    calendarItems(userId, {
+      from: todayIso,
+      to: addCalendarDays(todayIso, 6),
+      kinds: DEFAULT_KINDS,
+    }),
     db.note.findMany({
       where: { userId },
       select: { id: true, title: true, content: true, pinned: true, updatedAt: true },
@@ -54,7 +62,7 @@ export default async function TodayPage() {
       <section className="home-left">
         <TodayTodoList initialTasks={todayTasks.map((task) => ({ ...task, done: task.status === "DONE" }))} />
 
-        <HomeUpcomingAgenda events={upcoming.map((event) => ({ ...event, startAt: event.startAt.toISOString(), endAt: event.endAt.toISOString() }))} />
+        <HomeUpcomingAgenda items={week} today={todayIso} />
 
         <HomeHabits
           today={habits.today}

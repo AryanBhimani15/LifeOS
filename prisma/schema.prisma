@@ -430,19 +430,27 @@ model Task {
   @@map("tasks")
 }
 
+/// Exclusive arc: a reminder belongs to exactly one of task / event.
+///
+/// `taskId` became nullable when events gained reminders. The CHECK constraint
+/// in the migration is what keeps "exactly one" true — without it this is just
+/// two nullable columns and nothing stops a row belonging to neither.
 model Reminder {
   id        String    @id @default(cuid())
   userId    String
-  taskId    String
+  taskId    String?
+  eventId   String?
   remindAt  DateTime
   sentAt    DateTime?
   createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task  Task?  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([userId, remindAt])
   @@index([taskId])
+  @@index([eventId])
   @@map("reminders")
 }
 
@@ -480,6 +488,7 @@ model Event {
   instances  Event[]         @relation("EventSeries")
   documents  Document[]
   tags       EventTag[]
+  reminders  Reminder[]
 
   @@unique([seriesId, occurrenceOn])
   @@index([userId, startAt])

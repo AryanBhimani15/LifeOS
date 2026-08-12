@@ -1366,3 +1366,169 @@ button { border: 0; cursor: pointer; color: inherit; }
 .home-habits-empty a { color: var(--pink); font-weight: 650; }
 .dark-mode .home-habits { background: var(--panel); border-color: var(--line); }
 .dark-mode .home-habits h2, .dark-mode .home-habits li b { color: var(--ink); }
+
+/* ---------------------------------------------------------------------------
+   Calendar
+
+   Six categories need six colours, and six saturated colours would wreck a
+   blush page. So each is a desaturated tint of the same lightness — pink for
+   tasks (the house colour), rose for exams, and muted blue/green/amber/violet
+   for the rest. They read as one family, and no single pill shouts.
+--------------------------------------------------------------------------- */
+:root {
+  --cal-task: #b4436b;        --cal-task-bg: #ffe6ee;
+  --cal-exam: #b03d52;        --cal-exam-bg: #ffe1e4;
+  --cal-event: #46748f;       --cal-event-bg: #e6f2f8;
+  --cal-goal: #7d5aa6;        --cal-goal-bg: #f1eafa;
+  --cal-fitness: #9a6a2f;     --cal-fitness-bg: #fbeeda;
+  --cal-habit: #5e7f52;       --cal-habit-bg: #ebf4e6;
+}
+
+.calendar-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.calendar-nav { display: flex; align-items: center; gap: 8px; }
+.calendar-nav h2 { margin: 0 0 0 8px; color: var(--pink-ink); font: 700 17px var(--sans); letter-spacing: -.035em; }
+.calendar-today { padding: 8px 14px; color: #5c4b53; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 9px; font-size: 12px; font-weight: 650; }
+.calendar-today:hover { color: var(--pink); border-color: var(--pink); }
+.calendar-step { display: grid; place-items: center; width: 34px; height: 34px; color: #7d6b73; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 9px; }
+.calendar-step:hover { color: var(--pink); border-color: var(--pink); }
+.calendar-views { display: flex; gap: 4px; padding: 3px; background: var(--pink-soft); border-radius: 10px; }
+.calendar-views a { padding: 7px 14px; color: #8b7a82; border-radius: 8px; font-size: 12px; font-weight: 650; }
+.calendar-views a.is-active { color: var(--pink); background: #fff; box-shadow: 0 2px 6px rgba(181, 68, 106, .1); }
+
+.calendar-filters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.calendar-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; color: #9d8f95; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 99px; font-size: 11px; font-weight: 600; transition: color .16s, background .16s, border-color .16s; }
+.calendar-chip i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; }
+.calendar-chip.is-on i { opacity: 1; }
+.calendar-chip.is-on.is-task { color: var(--cal-task); background: var(--cal-task-bg); border-color: transparent; }
+.calendar-chip.is-on.is-exam { color: var(--cal-exam); background: var(--cal-exam-bg); border-color: transparent; }
+.calendar-chip.is-on.is-event { color: var(--cal-event); background: var(--cal-event-bg); border-color: transparent; }
+.calendar-chip.is-on.is-goal { color: var(--cal-goal); background: var(--cal-goal-bg); border-color: transparent; }
+.calendar-chip.is-on.is-fitness { color: var(--cal-fitness); background: var(--cal-fitness-bg); border-color: transparent; }
+.calendar-chip.is-on.is-habit { color: var(--cal-habit); background: var(--cal-habit-bg); border-color: transparent; }
+
+/* The canvas, and the day panel beside it. */
+.calendar-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.calendar-body.has-panel { grid-template-columns: minmax(0, 1fr) 310px; }
+.calendar-canvas { min-width: 0; padding: 16px; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 15px; box-shadow: var(--pink-shadow); }
+
+.calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.calendar-weekdays span { color: #a2939a; font: 650 10px var(--code); letter-spacing: .08em; text-align: center; text-transform: uppercase; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: minmax(104px, auto); gap: 6px; }
+.calendar-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 7px 6px; background: #fffafc; border: 1px solid #f8eaf0; border-radius: 10px; transition: border-color .16s, background .16s; }
+.calendar-cell.is-outside { background: #fdfbfc; opacity: .5; }
+.calendar-cell.is-today { background: var(--pink-soft); border-color: #f7b9cb; }
+.calendar-cell.is-selected { border-color: var(--pink); box-shadow: 0 0 0 2px #f1377018; }
+.calendar-daynum { align-self: start; min-width: 24px; padding: 2px 5px; color: #55454d; background: transparent; border-radius: 6px; font: 700 12px var(--sans); }
+.calendar-daynum:hover { color: var(--pink); background: #fff; }
+.calendar-cell.is-today .calendar-daynum { color: var(--pink); }
+.calendar-pills { display: grid; gap: 3px; min-width: 0; }
+
+.calendar-pill { display: flex; align-items: baseline; gap: 5px; min-width: 0; overflow: hidden; padding: 3px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 600; line-height: 1.3; }
+.calendar-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-pill em { flex: none; font-style: normal; font-weight: 500; opacity: .72; }
+/* "Done" does not mean the same thing for every kind.
+   A ticked task and an achieved goal are struck through, because they were
+   crossed off. A past event or a logged workout is only history — striking out
+   a workout you completed reads as a failure rather than a result. */
+.calendar-pill.is-done { opacity: .58; }
+.calendar-pill.is-task.is-done span, .calendar-pill.is-goal.is-done span, .calendar-pill.is-habit.is-done span { text-decoration: line-through; }
+.calendar-pill.is-task { color: var(--cal-task); background: var(--cal-task-bg); }
+.calendar-pill.is-exam { color: var(--cal-exam); background: var(--cal-exam-bg); }
+.calendar-pill.is-event { color: var(--cal-event); background: var(--cal-event-bg); }
+.calendar-pill.is-goal { color: var(--cal-goal); background: var(--cal-goal-bg); }
+.calendar-pill.is-fitness { color: var(--cal-fitness); background: var(--cal-fitness-bg); }
+.calendar-pill.is-habit { color: var(--cal-habit); background: var(--cal-habit-bg); }
+a.calendar-pill:hover { filter: brightness(.96); }
+.calendar-more { align-self: start; padding: 2px 5px; color: #93838a; background: transparent; font-size: 10px; font-weight: 650; }
+.calendar-more:hover { color: var(--pink); }
+
+.calendar-dot { display: block; flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.calendar-dot.is-task { background: var(--cal-task); }
+.calendar-dot.is-exam { background: var(--cal-exam); }
+.calendar-dot.is-event { background: var(--cal-event); }
+.calendar-dot.is-goal { background: var(--cal-goal); }
+.calendar-dot.is-fitness { background: var(--cal-fitness); }
+.calendar-dot.is-habit { background: var(--cal-habit); }
+
+/* Week: seven columns of the day's items, not an hour grid. */
+.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.calendar-weekday { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 260px; padding: 8px 7px; background: #fffafc; border: 1px solid #f8eaf0; border-radius: 10px; }
+.calendar-weekday.is-today { background: var(--pink-soft); border-color: #f7b9cb; }
+.calendar-weekday.is-selected { border-color: var(--pink); }
+.calendar-weekday-head { display: grid; gap: 1px; padding: 2px; color: inherit; background: transparent; text-align: left; }
+.calendar-weekday-head span { color: #a2939a; font: 650 9px var(--code); letter-spacing: .06em; text-transform: uppercase; }
+.calendar-weekday-head b { color: #44343c; font: 700 16px var(--sans); }
+.calendar-weekday.is-today .calendar-weekday-head b, .calendar-weekday.is-today .calendar-weekday-head span { color: var(--pink); }
+.calendar-day-clear { margin: 4px 0 0; color: #c4b5bb; font-size: 12px; }
+
+/* Day and agenda: rows with a time gutter. */
+.calendar-single-day h2 { margin: 0 0 14px; color: var(--pink-ink); font: 700 17px var(--sans); letter-spacing: -.035em; }
+.calendar-agenda section + section { margin-top: 20px; }
+.calendar-agenda h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; color: var(--pink-ink); font: 700 13px var(--sans); letter-spacing: -.02em; }
+.calendar-agenda h3 em { padding: 2px 7px; color: var(--pink); background: var(--pink-soft); border-radius: 99px; font-size: 10px; font-style: normal; font-weight: 700; }
+.calendar-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.calendar-rows li { border-bottom: 1px solid #f8ecf0; }
+.calendar-rows li:last-child { border-bottom: 0; }
+.calendar-rows li > a, .calendar-rows li > div { display: grid; grid-template-columns: 108px 8px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 4px 2px; color: inherit; }
+.calendar-rows li > a:hover { background: #fffafc; }
+.calendar-row-time { color: #8b7d84; font: 500 11px var(--code); }
+.calendar-row-title { display: flex; align-items: baseline; gap: 9px; min-width: 0; color: #3a2d34; font-size: 13px; font-weight: 550; }
+.calendar-row-title em { flex: none; color: #a2939a; font-size: 11px; font-style: normal; font-weight: 400; }
+.calendar-rows li.is-done .calendar-row-title { color: #a4949b; }
+.calendar-rows li.is-done:has(.calendar-dot.is-task) .calendar-row-title, .calendar-rows li.is-done:has(.calendar-dot.is-goal) .calendar-row-title, .calendar-rows li.is-done:has(.calendar-dot.is-habit) .calendar-row-title { text-decoration: line-through; }
+.calendar-row-done { color: #5f9d78; }
+.calendar-empty { display: flex; align-items: center; gap: 9px; margin: 6px 0; color: #978890; font-size: 12.5px; }
+
+/* The day panel. */
+.calendar-panel { position: sticky; top: 20px; padding: 17px 18px; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 15px; box-shadow: var(--pink-shadow); }
+.calendar-panel > header { display: flex; align-items: start; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+.calendar-panel > header span { color: var(--pink); font: 650 10px var(--code); letter-spacing: .08em; }
+.calendar-panel > header h2 { margin: 4px 0 0; color: var(--pink-ink); font: 700 15px var(--sans); letter-spacing: -.035em; }
+.calendar-panel > header button { display: grid; place-items: center; width: 28px; height: 28px; color: #9a8990; border-radius: 8px; }
+.calendar-panel > header button:hover { color: var(--pink); background: var(--pink-soft); }
+.calendar-panel-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.calendar-panel-list li { padding: 9px 0; border-bottom: 1px solid #f8ecf0; }
+.calendar-panel-list li:last-child { border-bottom: 0; }
+.calendar-panel-item { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+.calendar-panel-item i { margin-top: 5px; }
+.calendar-panel-item b { display: block; color: #3a2d34; font-size: 12.5px; font-weight: 600; }
+.calendar-panel-item small { display: block; margin-top: 2px; color: #8b7d84; font-size: 11px; }
+.calendar-panel-item a { color: #b6a4ab; }
+.calendar-panel-item a:hover { color: var(--pink); }
+.calendar-panel-list li.is-done b { color: #a4949b; }
+.calendar-panel-list li.is-done:has(.calendar-dot.is-task) b, .calendar-panel-list li.is-done:has(.calendar-dot.is-goal) b, .calendar-panel-list li.is-done:has(.calendar-dot.is-habit) b { text-decoration: line-through; }
+.calendar-move-open { margin: 6px 0 0 18px; padding: 3px 8px; color: var(--pink); background: var(--pink-soft); border-radius: 6px; font-size: 10.5px; font-weight: 650; }
+.calendar-move { display: flex; align-items: center; gap: 8px; margin: 7px 0 0 18px; }
+.calendar-move input { padding: 5px 8px; color: #33272d; background: #fff; border: 1px solid var(--pink); border-radius: 7px; font: 500 11px var(--sans); outline: none; }
+.calendar-move button { color: #93838a; background: transparent; font-size: 11px; }
+.calendar-panel-foot { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #f8ecf0; color: #a2939a; font-size: 10.5px; line-height: 1.5; }
+.calendar-allday { display: flex; align-items: center; gap: 9px; color: #5f5057; font-size: 12px; font-weight: 650; }
+.calendar-allday input { accent-color: var(--pink); width: 15px; height: 15px; }
+
+@media (max-width: 1180px) {
+  .calendar-body.has-panel { grid-template-columns: minmax(0, 1fr); }
+  .calendar-panel { position: static; }
+}
+@media (max-width: 900px) {
+  .calendar-grid { grid-auto-rows: minmax(84px, auto); }
+  .calendar-week { grid-template-columns: 1fr; }
+  .calendar-weekday { min-height: 0; }
+  .calendar-rows li > a, .calendar-rows li > div { grid-template-columns: 84px 8px minmax(0, 1fr) auto; gap: 9px; }
+}
+
+.dark-mode .calendar-canvas, .dark-mode .calendar-panel, .dark-mode .calendar-today, .dark-mode .calendar-step { background: var(--panel); border-color: var(--line); color: var(--ink); }
+.dark-mode .calendar-cell, .dark-mode .calendar-weekday { background: #232722; border-color: var(--line); }
+.dark-mode .calendar-cell.is-today, .dark-mode .calendar-weekday.is-today { background: #33232c; }
+.dark-mode .calendar-daynum, .dark-mode .calendar-weekday-head b, .dark-mode .calendar-row-title, .dark-mode .calendar-panel-item b, .dark-mode .calendar-nav h2, .dark-mode .calendar-panel > header h2 { color: var(--ink); }
+.dark-mode .calendar-views { background: #232722; }
+.dark-mode .calendar-views a.is-active { background: var(--panel); }
+
+/* Home's week preview now renders CalendarItems, so it uses the same category
+   colours as the Calendar page rather than its own three-colour scheme. */
+.home-calendar-preview > div > span { overflow: hidden; padding: 4px 5px; border-radius: 5px; font-size: 9px; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.home-calendar-preview > div > .is-task { color: var(--cal-task); background: var(--cal-task-bg); }
+.home-calendar-preview > div > .is-exam { color: var(--cal-exam); background: var(--cal-exam-bg); }
+.home-calendar-preview > div > .is-event { color: var(--cal-event); background: var(--cal-event-bg); }
+.home-calendar-preview > div > .is-goal { color: var(--cal-goal); background: var(--cal-goal-bg); }
+.home-calendar-preview > div > .is-fitness { color: var(--cal-fitness); background: var(--cal-fitness-bg); }
+.home-calendar-preview > div > .is-habit { color: var(--cal-habit); background: var(--cal-habit-bg); }
