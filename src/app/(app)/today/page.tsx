@@ -2,15 +2,33 @@ import Link from "next/link";
 import { ArrowUpRight, Plus, Sparkles } from "lucide-react";
 import { requireUserId } from "@/lib/session";
 import { getTodayData } from "@/lib/repositories/dashboard";
+import { getProfile } from "@/lib/repositories/fitness";
+import { getActivePlan } from "@/lib/repositories/onboarding";
+import { endOfDayInZone, hourInZone, startOfDayInZone } from "@/lib/dates";
+import { greetingForHour } from "@/lib/fitness";
 import { formatMoney } from "@/lib/money";
 import { HabitGrid } from "@/components/HabitGrid";
 import { Sparkline } from "@/components/Sparkline";
+import { PlanToday } from "@/components/fitness/PlanToday";
+import { AddTask } from "@/components/tasks/AddTask";
 
 export const metadata = { title: "LifeOS — Today" };
 
 export default async function TodayPage() {
   const userId = await requireUserId();
-  const data = await getTodayData(userId);
+  const [data, profile] = await Promise.all([getTodayData(userId), getProfile(userId)]);
+
+  const now = new Date();
+  const plan = await getActivePlan(
+    userId,
+    data.zone,
+    startOfDayInZone(now, data.zone),
+    endOfDayInZone(now, data.zone),
+  );
+
+  // Greeted by name on every visit, in their own timezone — the header is the
+  // first thing read after signing in, and "Today" said nothing to anyone.
+  const greeting = greetingForHour(hourInZone(data.zone));
 
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -26,8 +44,9 @@ export default async function TodayPage() {
       <header className="topbar">
         <div>
           <p className="eyebrow">{dateLabel}</p>
-          <h1>
-            Today <kbd>⌘ K</kbd>
+          <h1 className="greeting">
+            {greeting}
+            {profile && <em>{profile.firstName}.</em>}
           </h1>
         </div>
         <div className="header-actions">
@@ -49,11 +68,12 @@ export default async function TodayPage() {
               </span>
             </div>
 
+            {/* The same Add Task used on the board — one capture experience,
+                wherever you happen to be. */}
+            <AddTask placeholder="What do you need to do?" />
+
             {data.now.length === 0 ? (
-              <EmptyState
-                message="Nothing is demanding your attention."
-                action={{ href: "/tasks", label: "Add a task" }}
-              />
+              <EmptyState message="Nothing is demanding your attention." />
             ) : (
               <div className="task-list">
                 {data.now.map((task) => (
@@ -70,6 +90,21 @@ export default async function TodayPage() {
               </div>
             )}
           </section>
+
+          {/* ---- Training ---- */}
+          {plan && (
+            <section className="section reveal delay-2">
+              <div className="section-title">
+                <span>
+                  Training <em>{plan.name}</em>
+                </span>
+                <Link className="section-meta fit-link" href="/fitness">
+                  {plan.daysPerWeek} days a week
+                </Link>
+              </div>
+              <PlanToday sessions={plan.today} />
+            </section>
+          )}
 
           {/* ---- Timeline ---- */}
           <section className="section reveal delay-2">

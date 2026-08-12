@@ -5,11 +5,11 @@ notes, journal, and expenses in one application, with a natural-language command
 bar that turns a sentence into structured, confirmed actions.
 
 > **Status: web app and mobile companion working; several sections still stubs.**
-> Auth, the Today view, the Kanban board and the AI command centre all work end to
-> end against Postgres, covered by 79 server tests plus browser and API contract
-> suites. Projects, Calendar, Goals, Habits, Notes, Journal and Money have schema
-> and pages but no APIs yet, and say so on screen rather than showing sample data.
-> See [Status](#status) for the honest breakdown.
+> Auth, onboarding, the Today view, the Kanban board, the calorie burn tracker and
+> the AI command centre all work end to end against Postgres, covered by 128 server
+> tests plus browser and API contract suites. Projects, Calendar, Goals, Habits,
+> Notes, Journal and Money have schema and pages but no APIs yet, and say so on
+> screen rather than showing sample data. See [Status](#status) for the breakdown.
 
 ## What works today
 
@@ -18,6 +18,16 @@ bar that turns a sentence into structured, confirmed actions.
   mutation testing.
 - **Tasks** — full CRUD, subtasks, recurrence rules, tags, projects, filtering,
   cursor pagination, and fractional-rank ordering for drag-and-drop.
+- **Onboarding that builds something** — a guided, one-question-at-a-time setup
+  every new account completes, each step with its own animation. It asks what
+  their week is built around and what they are working towards, then generates a
+  weekly training plan, two starter goals with milestones, and two habits. The
+  answers are used, not filed.
+- **Effortless capture** — today's planned session is logged with one tap, and a
+  task is one field and Enter. Neither needs a form.
+- **Calorie burn** — an activity catalogue in Postgres, a calculator that prices
+  every result server-side, saved history with delete, and daily/weekly totals
+  bucketed by the user's own calendar.
 - **AI command centre** — natural language becomes a validated, resolved plan;
   destructive actions require server-enforced confirmation; read-only questions
   are answered from the database.
@@ -132,15 +142,21 @@ plan and ask a question rather than guessing.
 - Request pipeline (auth, rate limiting, validation, error mapping)
 - Ownership enforcement and cross-user isolation
 - Tasks API
+- Fitness API (profile, activities, calculate, history, stats)
 - AI command centre (plan, resolve, confirm, execute, query)
 - Audit logging, money handling, timezone-correct dates
 
-- Web UI — login/register, Today, Kanban board with drag-and-drop, ⌘K command bar
+- Web UI — login/register, onboarding, Today, Kanban board with drag-and-drop,
+  calorie burn calculator with history and weekly chart, ⌘K command bar
 - Mobile companion — voice capture, plan receipt, confirm (see docs/mobile.md)
 - Token auth for native clients, alongside cookie sessions for the browser
 
 **Not yet built**
 
+- Personalised calorie formulas. The calculator uses each activity's flat
+  published rate; the onboarding profile is stored and shown but deliberately not
+  applied, because presenting an invented health number as a real one is worse
+  than presenting an obviously generic one.
 - API routes for projects, notes, goals, habits, journal, expenses, documents
   (schema and the repository pattern exist; those routes do not). Their pages
   render an explicit "not built yet" state rather than fake rows.

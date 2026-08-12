@@ -84,13 +84,7 @@ const SUGGESTIONS = [
   "Log a 4.50 coffee",
 ];
 
-export function CommandBar({
-  isDark,
-  onToggleTheme,
-}: {
-  isDark: boolean;
-  onToggleTheme: () => void;
-}) {
+export function CommandBar() {
   const router = useRouter();
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -362,9 +356,8 @@ export function CommandBar({
               <span>
                 <Command size={12} /> Run command
               </span>
-              <button className="command-theme" onClick={onToggleTheme}>
-                {isDark ? "Light" : "Dark"} mode
-              </button>
+              {/* The theme switch lived here too. One setting, one control —
+                  it is in the top bar. */}
               <span>esc Close</span>
             </div>
           </div>

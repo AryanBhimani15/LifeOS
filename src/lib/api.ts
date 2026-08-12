@@ -9,6 +9,7 @@ import {
   validationFailed,
 } from "@/lib/errors";
 import { consumeRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
+import { accountExists } from "@/lib/authz";
 import { verifyAccessToken } from "@/lib/mobile-auth";
 import { corsHeaders, resolveAllowedOrigin } from "@/lib/cors";
 
@@ -120,7 +121,12 @@ async function resolveUser(request: Request): Promise<{ userId: string; method: 
   const header = request.headers.get("authorization");
   if (header?.toLowerCase().startsWith("bearer ")) {
     const claims = await verifyAccessToken(header.slice(7).trim());
-    if (!claims) throw unauthenticated("Your session has expired. Please sign in again.");
+    // An access token is a self-contained JWT, so a valid signature says
+    // nothing about whether the account is still there. The cookie path gets
+    // the same check inside the Auth.js session callback.
+    if (!claims || !(await accountExists(claims.userId))) {
+      throw unauthenticated("Your session has expired. Please sign in again.");
+    }
     return { userId: claims.userId, method: "bearer" };
   }
 

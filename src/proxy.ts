@@ -55,13 +55,11 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Signed-in users have no reason to see the auth screens.
-  if (hasSession && (pathname === "/login" || pathname === "/register")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // Sending signed-in users away from /login and /register is deliberately NOT
+  // done here. This file cannot tell a live session from a cookie naming a
+  // deleted user, and redirecting the latter to /today — which redirects back
+  // to /login — is an inescapable loop. `src/app/(auth)/layout.tsx` makes that
+  // call instead, after resolving the session for real.
 
   return NextResponse.next();
 }

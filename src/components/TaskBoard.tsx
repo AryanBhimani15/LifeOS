@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useOptimistic, useState, useTransition } from "react";
+import { useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,8 +12,10 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Plus, Trash2 } from "lucide-react";
-import { createTaskAction, deleteTaskAction, moveTaskAction } from "@/app/(app)/actions";
+import { Trash2 } from "lucide-react";
+import { deleteTaskAction, moveTaskAction } from "@/app/(app)/actions";
+import { AddTask } from "@/components/tasks/AddTask";
+import { TaskDetailLoader } from "@/components/tasks/TaskDetailLoader";
 import { useToast } from "./ToastProvider";
 
 /**
@@ -77,6 +79,8 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
   const [tasks, addOptimistic] = useOptimistic(initialTasks, applyOptimistic);
   const [dragging, setDragging] = useState<Task | null>(null);
   const [filter, setFilter] = useState("");
+  /** The task whose detail panel is showing, if any. */
+  const [open, setOpen] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
 
@@ -135,12 +139,6 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
     });
   }
 
-  async function addTask(formData: FormData) {
-    const result = await createTaskAction(formData);
-    if (result?.error) toast(result.error, "error");
-    else toast("Task created.");
-  }
-
   function remove(task: Task) {
     startTransition(async () => {
       addOptimistic({ kind: "delete", taskId: task.id });
@@ -155,6 +153,10 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
 
   return (
     <>
+      {open && (
+        <TaskDetailLoader taskId={open} onClose={() => setOpen(null)} />
+      )}
+
       <header className="topbar">
         <div>
           <p className="eyebrow">BOARD</p>
@@ -171,19 +173,7 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
         </div>
       </header>
 
-      <form action={addTask} className="quick-add">
-        <input name="title" placeholder="Add a task and press enter…" required maxLength={200} />
-        <select name="priority" defaultValue="MEDIUM" aria-label="Priority">
-          <option value="LOW">Low</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="HIGH">High</option>
-          <option value="URGENT">Urgent</option>
-        </select>
-        <input type="datetime-local" name="dueAt" aria-label="Due date" />
-        <button type="submit">
-          <Plus size={15} /> Add
-        </button>
-      </form>
+      <AddTask autoFocus />
 
       {/*
         An explicit id keeps dnd-kit's generated accessibility ids stable. Without
@@ -199,7 +189,12 @@ export function TaskBoard({ initialTasks }: { initialTasks: Task[] }) {
                 <p className="board-empty">Nothing here.</p>
               ) : (
                 column.tasks.map((task) => (
-                  <Card key={task.id} task={task} onDelete={() => remove(task)} />
+                  <Card
+                    key={task.id}
+                    task={task}
+                    onDelete={() => remove(task)}
+                    onOpen={() => setOpen(task.id)}
+                  />
                 ))
               )}
             </Column>
@@ -237,16 +232,42 @@ function Column({
   );
 }
 
-function Card({ task, onDelete }: { task: Task; onDelete: () => void }) {
+function Card({
+  task,
+  onDelete,
+  onOpen,
+}: {
+  task: Task;
+  onDelete: () => void;
+  onOpen: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
   });
+
+  /**
+   * Where the pointer went down, so a drop can be told from a click.
+   *
+   * dnd-kit fires a click after every drag, so opening the panel on a bare
+   * click would open one every time a card was moved. Anything past a few
+   * pixels of travel was a drag.
+   */
+  const origin = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div
       ref={setNodeRef}
       className={isDragging ? "board-card is-dragging" : "board-card"}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
+      onPointerDownCapture={(e) => {
+        origin.current = { x: e.clientX, y: e.clientY };
+      }}
+      onClick={(e) => {
+        const from = origin.current;
+        if (!from) return;
+        const moved = Math.hypot(e.clientX - from.x, e.clientY - from.y);
+        if (moved < 5) onOpen();
+      }}
       {...listeners}
       {...attributes}
     >

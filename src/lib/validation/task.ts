@@ -38,6 +38,8 @@ export const createTaskSchema = z.object({
   status: taskStatus.default("TODO"),
   priority: priority.default("MEDIUM"),
   dueAt: isoDateTime.nullish(),
+  /** Whether the user gave a clock time or only a day. See the Prisma schema. */
+  dueHasTime: z.boolean().optional(),
   startAt: isoDateTime.nullish(),
   estimateMin: z.number().int().min(0).max(60 * 24 * 30).nullish(),
   projectId: idSchema.nullish(),

@@ -7,20 +7,18 @@ import {
   CalendarDays,
   CheckSquare,
   ChevronDown,
-  Circle,
   FileText,
+  Flame,
   Folder,
   Heart,
   LayoutDashboard,
-  LogOut,
   Settings,
   Target,
   Wallet,
 } from "lucide-react";
-import { signOutAction } from "@/app/(app)/actions";
-import { useTheme } from "@/lib/theme";
 import { CommandBar } from "./CommandBar";
 import { ToastProvider } from "./ToastProvider";
+import { TopBar } from "./TopBar";
 
 /**
  * The application shell: sidebar, theme, command bar.
@@ -37,19 +35,25 @@ const NAV = [
   { icon: CalendarDays, label: "Calendar", href: "/calendar" },
   { icon: Target, label: "Goals", href: "/goals" },
   { icon: Heart, label: "Habits", href: "/habits" },
+  { icon: Flame, label: "Fitness", href: "/fitness" },
   { icon: FileText, label: "Notes", href: "/notes" },
   { icon: BookOpen, label: "Journal", href: "/journal" },
   { icon: Wallet, label: "Money", href: "/money" },
 ] as const;
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  palette = "forest",
+}: {
+  children: React.ReactNode;
+  /** Tints the whole product, chosen during setup. See globals.css. */
+  palette?: "forest" | "rose";
+}) {
   const pathname = usePathname();
-  // The theme class lives on <html>, applied before paint by an inline script.
-  const { isDark, toggle } = useTheme();
 
   return (
     <ToastProvider>
-      <div className="lifeos-app">
+      <div className="lifeos-app" data-palette={palette}>
         <div className="ambient-orb ambient-one" />
         <div className="ambient-orb ambient-two" />
 
@@ -77,28 +81,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
+          {/* Theme and sign out moved to the top bar, where they are labelled
+              and always in view. What is left here is what belongs in a
+              sidebar: navigation. */}
           <div className="side-footer">
-            <Link href="/settings" aria-label="Settings">
-              <Settings size={16} />
+            <Link href="/settings" className="side-settings">
+              <Settings size={15} /> <span>Settings</span>
             </Link>
-            <form action={signOutAction}>
-              <button type="submit" aria-label="Sign out" title="Sign out">
-                <LogOut size={16} />
-              </button>
-            </form>
-            <button
-              className="theme-toggle"
-              aria-label="Switch theme"
-              onClick={toggle}
-            >
-              <Circle size={15} fill="currentColor" />
-            </button>
           </div>
         </aside>
 
-        <section className="dashboard">{children}</section>
+        <section className="dashboard">
+          <TopBar />
+          {children}
+        </section>
 
-        <CommandBar isDark={isDark} onToggleTheme={toggle} />
+        <CommandBar />
       </div>
     </ToastProvider>
   );

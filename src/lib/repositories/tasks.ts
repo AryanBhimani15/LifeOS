@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { requireAllOwned, requireOwned, requireOwnedIfPresent } from "@/lib/authz";
 import { badRequest, notFound } from "@/lib/errors";
+import { parseCapture } from "@/lib/nlp/parse-capture";
+import { tidyTitle } from "@/lib/validation/capture";
 import type { CreateTaskInput, TaskQuery, UpdateTaskInput } from "@/lib/validation/task";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -135,6 +137,7 @@ export async function createTask(userId: string, input: CreateTaskInput) {
         status: input.status,
         priority: input.priority,
         dueAt: input.dueAt ?? null,
+        dueHasTime: input.dueAt ? (input.dueHasTime ?? false) : false,
         startAt: input.startAt ?? null,
         estimateMin: input.estimateMin ?? null,
         // Scalar FK assignment, never a nested connect of a client-supplied id.
@@ -164,6 +167,120 @@ export async function createTask(userId: string, input: CreateTaskInput) {
 
     return task;
   });
+}
+
+/**
+ * The one way a task gets created from something a person typed or said.
+ *
+ * Everything that captures a task goes through here: the Add Task field, the
+ * quick capture on Today, voice capture, and the ⌘K bar. Before this existed
+ * there were three creation paths — `createTask`, a bare `db.task.create` in
+ * the capture repository, and another inside the AI executor — which meant
+ * board ordering, project activity and date parsing all behaved differently
+ * depending on where you happened to be standing when you typed.
+ *
+ * It is a thin layer on `createTask`, not a replacement: parse the sentence,
+ * let anything the user picked explicitly win, then hand over.
+ */
+export interface CaptureTaskInput {
+  /** Raw text. Dates and times are extracted from it, never invented. */
+  text: string;
+  /**
+   * From a date chip or picker. Overrides whatever the text said, because a
+   * deliberate tap is a stronger signal than a parsed word — and `null`
+   * explicitly means "no date", so it is distinguishable from "not specified".
+   */
+  dueAt?: Date | null;
+  dueHasTime?: boolean;
+  note?: string | null;
+  remindAt?: Date | null;
+  projectId?: string | null;
+  parentId?: string | null;
+}
+
+export interface CaptureTaskResult {
+  task: TaskWithRelations;
+  /** The phrase that became the date, so the UI can show its working. */
+  matchedText: string | null;
+}
+
+export async function captureTask(
+  userId: string,
+  input: CaptureTaskInput,
+  context: { timeZone: string; weekStartsOn?: number },
+): Promise<CaptureTaskResult> {
+  const parsed = parseCapture(input.text, {
+    timeZone: context.timeZone,
+    weekStartsOn: context.weekStartsOn,
+  });
+
+  const explicitDate = input.dueAt !== undefined;
+  const dueAt = explicitDate ? input.dueAt : parsed.dueAt;
+  const dueHasTime = explicitDate ? (input.dueHasTime ?? false) : parsed.dueHasTime;
+
+  const task = await createTask(userId, {
+    // Filler and capitalisation are tidied here so every entry point gets it.
+    // Speech in particular arrives as "remind me to call dad", and a task list
+    // full of "remind me to…" is a list nobody can scan.
+    title: tidyTitle(parsed.title).slice(0, 200),
+    description: input.note?.trim() || null,
+    status: "TODO",
+    // Nothing is inferred about importance. A captured task is an ordinary one
+    // until the user says otherwise.
+    priority: "MEDIUM",
+    dueAt: dueAt ?? null,
+    dueHasTime,
+    projectId: input.projectId ?? null,
+    parentId: input.parentId ?? null,
+    tagIds: [],
+  });
+
+  if (input.remindAt) {
+    await db.reminder.create({
+      data: { userId, taskId: task.id, remindAt: input.remindAt },
+    });
+  }
+
+  return { task, matchedText: explicitDate ? null : parsed.matchedText };
+}
+
+/**
+ * Everything the detail view renders, in one query.
+ *
+ * `events` and `reminders` come back as arrays because a task can have several,
+ * but the view shows the first of each — it is a detail panel, not a manager.
+ * Both are selected rather than counted so the panel can decide to draw nothing
+ * at all when they are empty, which is the whole design of that screen.
+ */
+export async function getTaskDetail(userId: string, id: string) {
+  const task = await db.task.findFirst({
+    where: { id, userId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      dueAt: true,
+      dueHasTime: true,
+      project: { select: { name: true } },
+      subtasks: {
+        select: { id: true, title: true, status: true },
+        orderBy: { boardOrder: "asc" },
+      },
+      reminders: {
+        select: { id: true, remindAt: true },
+        orderBy: { remindAt: "asc" },
+        take: 1,
+      },
+      events: {
+        select: { id: true, title: true, startAt: true, endAt: true },
+        orderBy: { startAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+  if (!task) throw notFound("Task");
+  return task;
 }
 
 export async function updateTask(userId: string, id: string, input: UpdateTaskInput) {
@@ -196,7 +313,11 @@ export async function updateTask(userId: string, id: string, input: UpdateTaskIn
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
         ...(input.priority !== undefined ? { priority: input.priority } : {}),
-        ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+        ...(input.dueAt !== undefined
+          ? { dueAt: input.dueAt, dueHasTime: input.dueAt ? (input.dueHasTime ?? false) : false }
+          : input.dueHasTime !== undefined
+            ? { dueHasTime: input.dueHasTime }
+            : {}),
         ...(input.startAt !== undefined ? { startAt: input.startAt } : {}),
         ...(input.estimateMin !== undefined ? { estimateMin: input.estimateMin } : {}),
         ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),

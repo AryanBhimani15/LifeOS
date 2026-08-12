@@ -15,6 +15,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { generatePlan } from "../src/lib/workout-plan";
 import bcrypt from "bcryptjs";
 
 const DEMO_EMAIL = process.env.DEMO_EMAIL ?? "demo@lifeos.local";
@@ -535,11 +536,112 @@ Whether to pin the runtime or track the latest LTS.`,
     ],
   });
 
+  // ---- Fitness ------------------------------------------------------------
+  //
+  // A finished profile, so the demo account lands on the dashboard rather than
+  // being sent through setup, plus a week of workouts positioned relative to
+  // now so the chart has a shape and today has a number.
+  await db.fitnessProfile.create({
+    data: {
+      userId,
+      firstName: "Aryan",
+      age: 24,
+      sex: "MALE",
+      heightMm: 1780,
+      weightGrams: 72_000,
+      heightUnit: "cm",
+      weightUnit: "kg",
+      activityLevel: "MODERATELY_ACTIVE",
+      lifeContext: "STUDENT_AND_WORKING",
+      primaryGoal: "BUILD_STRENGTH",
+      completedAt: at(-24 * 30),
+    },
+  });
+
+  // The training plan setup would have generated, so the demo account lands on
+  // a Today view with something to do rather than an empty Training section.
+  {
+    const plan = generatePlan({
+      primaryGoal: "BUILD_STRENGTH",
+      activityLevel: "MODERATELY_ACTIVE",
+      lifeContext: "STUDENT_AND_WORKING",
+      weekStartsOn: 1,
+    });
+    const activities = await db.activity.findMany();
+    const bySlug = new Map(activities.map((a) => [a.slug, a]));
+
+    await db.workoutPlan.create({
+      data: {
+        userId,
+        name: plan.name,
+        primaryGoal: "BUILD_STRENGTH",
+        daysPerWeek: plan.daysPerWeek,
+        rationale: plan.rationale,
+        sessions: {
+          create: plan.sessions.flatMap((session) => {
+            const activity = bySlug.get(session.slug);
+            if (!activity) return [];
+            return [
+              {
+                dayOfWeek: session.dayOfWeek,
+                activityId: activity.id,
+                activityName: activity.name,
+                activityIcon: activity.icon,
+                caloriesPerHour: activity.caloriesPerHour,
+                durationMinutes: session.durationMinutes,
+                focus: session.focus,
+                sortOrder: session.sortOrder,
+              },
+            ];
+          }),
+        },
+      },
+    });
+  }
+
+  const catalogue = await db.activity.findMany({
+    select: { id: true, name: true, icon: true, caloriesPerHour: true },
+  });
+  const bySlugName = new Map(catalogue.map((a) => [a.name, a]));
+
+  /** [days ago, activity, minutes] — a plausible week, rest day on Wednesday. */
+  const workouts: [number, string, number][] = [
+    [0, "Running", 45],
+    [0, "Yoga", 30],
+    [1, "Weight Training", 60],
+    [2, "Cycling", 75],
+    [4, "Swimming", 40],
+    [4, "Walking", 50],
+    [5, "Basketball", 90],
+    [6, "Jump Rope", 20],
+  ];
+
+  await db.workoutEntry.createMany({
+    data: workouts.flatMap(([daysAgo, name, minutes]) => {
+      const activity = bySlugName.get(name);
+      if (!activity) return [];
+      return [
+        {
+          userId,
+          activityId: activity.id,
+          activityName: activity.name,
+          activityIcon: activity.icon,
+          caloriesPerHour: activity.caloriesPerHour,
+          durationMinutes: minutes,
+          caloriesBurned: Math.round((activity.caloriesPerHour * minutes) / 60),
+          // Late afternoon, which is when most of these actually happen.
+          performedAt: at(-(daysAgo * 24 + 4)),
+        },
+      ];
+    }),
+  });
+
   // ---- Summary ------------------------------------------------------------
-  const [taskCount, habitCount, expenseCount] = await Promise.all([
+  const [taskCount, habitCount, expenseCount, workoutCount] = await Promise.all([
     db.task.count({ where: { userId } }),
     db.habit.count({ where: { userId } }),
     db.expense.count({ where: { userId } }),
+    db.workoutEntry.count({ where: { userId } }),
   ]);
 
   console.log(`
@@ -550,7 +652,8 @@ Demo account ready.
   timezone: ${TIMEZONE}
 
   ${taskCount} tasks (2 overdue, 1 due today), 3 projects, 3 goals,
-  ${habitCount} habits with streaks, 4 events today, ${expenseCount} expenses, 3 notes, 5 journal entries.
+  ${habitCount} habits with streaks, 4 events today, ${expenseCount} expenses, 3 notes, 5 journal entries,
+  a completed fitness profile and ${workoutCount} saved workouts.
 `);
 }
 

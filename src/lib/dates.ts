@@ -100,17 +100,59 @@ export function todayInZone(timeZone: string, now = new Date()): string {
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
+/**
+ * The hour (0–23) currently showing on the user's own clock.
+ *
+ * A greeting that reads "Good morning" to someone at 11pm is a small thing that
+ * makes the whole app feel like it is not paying attention, and the server's
+ * hour is nearly always the wrong one to use.
+ */
+export function hourInZone(timeZone: string, now = new Date()): number {
+  return zonedParts(now, timeZone).hour;
+}
+
 /** Midnight UTC of the user's current local date — the value @db.Date expects. */
 export function todayDateInZone(timeZone: string, now = new Date()): Date {
   return parseCalendarDate(todayInZone(timeZone, now))!;
 }
 
-/** The instant at which the user's local day containing `instant` begins. */
-export function startOfDayInZone(instant: Date, timeZone: string): Date {
-  const p = zonedParts(instant, timeZone);
-  const guess = Date.UTC(p.year, p.month - 1, p.day, 0, 0, 0);
+/**
+ * The instant at which a given local calendar date begins in a zone.
+ *
+ * Needed when iterating days: stepping forward by 24h from one local midnight
+ * lands on 23:00 of the *same* day when the clocks go back, which silently
+ * duplicates a bucket in a weekly chart. Walking calendar dates and resolving
+ * each one's offset separately cannot drift.
+ */
+export function startOfCalendarDayInZone(date: string, timeZone: string): Date {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
   const offset = zoneOffsetMinutes(new Date(guess), timeZone);
   return new Date(guess - offset * 60_000);
+}
+
+/** The instant at which the user's local day containing `instant` begins. */
+export function startOfDayInZone(instant: Date, timeZone: string): Date {
+  return startOfCalendarDayInZone(todayInZone(timeZone, instant), timeZone);
+}
+
+/**
+ * The instant at which a wall-clock time on a local calendar date occurs.
+ *
+ * "10am on 11 September" is a statement about the user's clock, not about UTC.
+ * Resolving the zone offset at that guessed instant is what keeps it correct
+ * across a DST boundary, where a naive `new Date("...T10:00")` is an hour out.
+ */
+export function instantInZone(date: string, minutesFromMidnight: number, timeZone: string): Date {
+  const start = startOfCalendarDayInZone(date, timeZone);
+  return new Date(start.getTime() + minutesFromMidnight * 60_000);
+}
+
+/** Steps a YYYY-MM-DD calendar date by whole days, with no zone involved. */
+export function addCalendarDays(date: string, days: number): string {
+  const parsed = parseCalendarDate(date)!;
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return toCalendarDate(parsed);
 }
 
 /** The last instant of the user's local day containing `instant`. */

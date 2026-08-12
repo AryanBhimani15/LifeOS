@@ -3,6 +3,7 @@ import { toMinorUnits, assertSafeMinorUnits } from "@/lib/money";
 import { todayDateInZone } from "@/lib/dates";
 import { badRequest } from "@/lib/errors";
 import { extractAmount, tidyTitle, type CaptureInput } from "@/lib/validation/capture";
+import { captureTask } from "@/lib/repositories/tasks";
 
 /**
  * Direct capture, no AI in the path.
@@ -25,21 +26,33 @@ export async function capture(userId: string, input: CaptureInput): Promise<Capt
 
   switch (input.type) {
     case "task": {
-      const task = await db.task.create({
-        data: {
-          userId,
-          title: title.slice(0, 200),
-          dueAt: input.dueAt ?? null,
-          priority: input.priority ?? "MEDIUM",
-          boardOrder: Date.now() % 1_000_000,
-        },
-        select: { id: true, title: true, dueAt: true },
+      // Goes through the shared pipeline rather than writing a task directly.
+      // The local version here used `Date.now() % 1_000_000` as a board rank,
+      // which put every captured task in a different place on the board than
+      // one created anywhere else, and it never parsed a date out of what was
+      // said — so "call mom tomorrow" arrived undated.
+      const settings = await db.userSettings.findUnique({
+        where: { userId },
+        select: { timezone: true, weekStartsOn: true },
       });
+
+      const { task, matchedText } = await captureTask(
+        userId,
+        // A date from the client's picker wins; otherwise the sentence is read.
+        input.dueAt ? { text: input.text, dueAt: input.dueAt, dueHasTime: true } : { text: input.text },
+        {
+          timeZone: settings?.timezone ?? "UTC",
+          weekStartsOn: settings?.weekStartsOn ?? 1,
+        },
+      );
+
       return {
         type: "task",
         id: task.id,
         label: task.title,
-        detail: task.dueAt ? `due ${task.dueAt.toISOString().slice(0, 10)}` : undefined,
+        detail: task.dueAt
+          ? `due ${matchedText ?? task.dueAt.toISOString().slice(0, 10)}`
+          : undefined,
       };
     }
 

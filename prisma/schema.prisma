@@ -66,6 +66,9 @@ model User {
   recurrences  RecurrenceRule[]
   refreshTokens RefreshToken[]
   devices       Device[]
+  fitness       FitnessProfile?
+  workouts      WorkoutEntry[]
+  workoutPlans  WorkoutPlan[]
 
   @@map("users")
 }
@@ -210,6 +213,39 @@ enum PlanStatus {
   EXPIRED
 }
 
+enum Sex {
+  MALE
+  FEMALE
+}
+
+/// Self-reported weekly training volume, collected during onboarding.
+enum ActivityLevel {
+  SEDENTARY
+  LIGHTLY_ACTIVE
+  MODERATELY_ACTIVE
+  VERY_ACTIVE
+  EXTREMELY_ACTIVE
+}
+
+/// What the week is mostly built around. Drives how much a plan can ask for and
+/// which starter goals are worth suggesting — a student's constraints are not a
+/// full-time professional's.
+enum LifeContext {
+  STUDENT
+  PROFESSIONAL
+  STUDENT_AND_WORKING
+  OTHER
+}
+
+/// The outcome someone said they wanted. Every generated plan and goal traces
+/// back to this, which is the whole reason for asking.
+enum PrimaryGoal {
+  LOSE_WEIGHT
+  BUILD_STRENGTH
+  IMPROVE_ENDURANCE
+  STAY_HEALTHY
+}
+
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
@@ -296,6 +332,17 @@ model Task {
   status      TaskStatus @default(TODO)
   priority    Priority   @default(MEDIUM)
   dueAt       DateTime?
+  /// Whether the user actually gave a time, or only a day.
+  ///
+  /// "Submit the report by Friday" and "Stand-up Friday at 9am" both land in
+  /// `dueAt`, but only one of them should render a clock. Without this flag a
+  /// date-only deadline reads as "Friday, 12:00 AM", which is both wrong and
+  /// alarming. It is also what lets a Calendar later place timed items on the
+  /// hour grid and all-day items in the header band.
+  ///
+  /// A deadline is still not an event: an exam that *happens* from 10:00–11:30
+  /// belongs in `Event` (which already carries `taskId`), not in `dueAt`.
+  dueHasTime  Boolean    @default(false)
   startAt     DateTime?
   completedAt DateTime?
   estimateMin Int?
@@ -885,4 +932,154 @@ model Device {
   @@unique([userId, installId])
   @@index([userId])
   @@map("devices")
+}
+
+// ---------------------------------------------------------------------------
+// Fitness
+// ---------------------------------------------------------------------------
+
+/// What the onboarding flow collects, one row per user.
+///
+/// Height and weight are stored in a single canonical unit and integer-valued,
+/// for the same reason money is stored in minor units: a user who enters 180 lb
+/// and reads it back as 179.99999 has been shown a bug. The unit they *typed*
+/// in is kept alongside as a display preference, so the app can echo their
+/// answer back in the units they think in without ever computing on them.
+model FitnessProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  firstName     String
+  age           Int
+  sex           Sex
+  heightMm      Int /// Canonical height in millimetres.
+  weightGrams   Int /// Canonical weight in grams.
+  activityLevel ActivityLevel
+  lifeContext   LifeContext @default(OTHER)
+  primaryGoal   PrimaryGoal @default(STAY_HEALTHY)
+
+  heightUnit String @default("cm") /// cm | ftin — display only
+  weightUnit String @default("kg") /// kg | lb  — display only
+
+  /// Set when the last onboarding step is submitted. Null means the flow was
+  /// started but never finished, which is what the route guard checks.
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("fitness_profiles")
+}
+
+/// The activity catalogue: shared reference data, not user-owned.
+///
+/// Seeded by migration so the list exists for every environment that runs
+/// `prisma migrate deploy`, rather than depending on anyone remembering to run
+/// a seed script.
+model Activity {
+  id              String  @id
+  slug            String  @unique
+  name            String
+  /// Icon key resolved against a map in the UI. Storing a name rather than
+  /// markup keeps unsanitised SVG out of the database.
+  icon            String
+  caloriesPerHour Int
+  sortOrder       Int     @default(0)
+  archived        Boolean @default(false)
+
+  workouts     WorkoutEntry[]
+  planSessions WorkoutPlanSession[]
+
+  @@index([archived, sortOrder])
+  @@map("activities")
+}
+
+/// A weekly training plan, generated from the onboarding answers.
+///
+/// One active plan per user. Regenerating archives the old one rather than
+/// deleting it, so history keeps pointing at something real.
+model WorkoutPlan {
+  id     String @id @default(cuid())
+  userId String
+
+  name        String
+  primaryGoal PrimaryGoal
+  daysPerWeek Int
+  /// One sentence explaining why this plan looks the way it does, written when
+  /// it is generated. A plan the user cannot see the reasoning for is a
+  /// black box they have no reason to trust.
+  rationale   String
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions WorkoutPlanSession[]
+
+  @@index([userId, archivedAt])
+  @@map("workout_plans")
+}
+
+/// One session in the weekly plan, pinned to a weekday.
+model WorkoutPlanSession {
+  id     String @id @default(cuid())
+  planId String
+
+  /// 0 = Sunday, matching Date#getUTCDay and UserSettings.weekStartsOn.
+  dayOfWeek       Int
+  activityId      String
+  /// Copied for the same reason WorkoutEntry copies them: the plan should still
+  /// read correctly if the catalogue is edited.
+  activityName    String
+  activityIcon    String
+  caloriesPerHour Int
+  durationMinutes Int
+  /// Short label for what the session is for — "Easy start", "Long session".
+  focus           String
+  sortOrder       Int    @default(0)
+
+  plan     WorkoutPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  activity Activity?      @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  logged   WorkoutEntry[]
+
+  @@index([planId, dayOfWeek])
+  @@index([activityId])
+  @@map("workout_plan_sessions")
+}
+
+/// One saved calculation.
+///
+/// The activity's name and rate are copied in rather than joined at read time.
+/// History is a record of what the user was told at the time: re-pricing an old
+/// entry because the catalogue changed would rewrite their past.
+model WorkoutEntry {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Set when the entry came from tapping a planned session, so the plan can
+  /// show what has already been done today without guessing from activity name.
+  planSessionId String?
+
+  /// Nulled rather than cascaded if a catalogue entry is ever removed — the
+  /// denormalised columns below are what the UI actually renders.
+  activityId      String?
+  activityName    String
+  activityIcon    String
+  caloriesPerHour Int
+  durationMinutes Int
+  caloriesBurned  Int
+
+  performedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity    Activity?           @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  planSession WorkoutPlanSession? @relation(fields: [planSessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, performedAt])
+  @@index([activityId])
+  @@index([planSessionId])
+  @@map("workout_entries")
 }

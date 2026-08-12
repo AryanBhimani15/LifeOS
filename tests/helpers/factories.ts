@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ACTIVITY_CATALOGUE } from "../../prisma/activities";
 
 /**
  * Test fixtures.
@@ -19,6 +20,13 @@ export async function resetDatabase() {
   }
   const list = tables.map((t) => `"public"."${t.tablename}"`).join(", ");
   await db.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
+
+  // The activity catalogue is reference data, put there by a migration rather
+  // than by any test, so it is restored rather than left empty. Restoring from
+  // the checked-in list rather than from a snapshot of the database matters:
+  // one test renames an activity on purpose, and a snapshot taken after that
+  // would carry the rename into every later run.
+  await db.activity.createMany({ data: [...ACTIVITY_CATALOGUE] });
 }
 
 let seq = 0;
@@ -69,4 +77,40 @@ export function makeNote(userId: string, title = "A note") {
 
 export function makeGoal(userId: string, title = "A goal") {
   return db.goal.create({ data: { userId, title } });
+}
+
+/** A completed onboarding profile, so a user can reach the signed-in app. */
+export function makeFitnessProfile(userId: string, firstName = "Alex") {
+  return db.fitnessProfile.create({
+    data: {
+      userId,
+      firstName,
+      age: 30,
+      sex: "MALE",
+      heightMm: 1780,
+      weightGrams: 75_000,
+      activityLevel: "MODERATELY_ACTIVE",
+      completedAt: new Date(),
+    },
+  });
+}
+
+/** One saved workout, at an explicit instant so timezone tests can place it. */
+export async function makeWorkout(
+  userId: string,
+  { slug = "running", minutes = 60, performedAt = new Date() } = {},
+) {
+  const activity = await db.activity.findUniqueOrThrow({ where: { slug } });
+  return db.workoutEntry.create({
+    data: {
+      userId,
+      activityId: activity.id,
+      activityName: activity.name,
+      activityIcon: activity.icon,
+      caloriesPerHour: activity.caloriesPerHour,
+      durationMinutes: minutes,
+      caloriesBurned: Math.round((activity.caloriesPerHour * minutes) / 60),
+      performedAt,
+    },
+  });
 }

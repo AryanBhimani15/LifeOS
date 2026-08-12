@@ -18,11 +18,13 @@ the parts whose reasoning is not obvious from the schema.
 |---|---|
 | Auth | `users`, `accounts`, `sessions`, `verification_tokens`, `user_settings` |
 | Work | `projects`, `project_activities`, `tasks`, `reminders`, `recurrence_rules`, `recurrence_exceptions` |
+| | `tasks.dueHasTime` separates "by Friday" from "at 6pm Friday"; `events.taskId` links a task to an exam or meeting without duplicating either |
 | Calendar | `events` |
 | Knowledge | `notes`, `note_folders`, `note_links` |
 | Tags | `tags` + `task_tags`, `note_tags`, `project_tags`, `expense_tags`, `goal_tags`, `journal_tags` |
 | Growth | `goals`, `milestones`, `goal_progress`, `habits`, `habit_completions`, `journal_entries` |
 | Money | `expenses`, `expense_categories`, `budgets` |
+| Fitness | `fitness_profiles`, `activities`, `workout_plans`, `workout_plan_sessions`, `workout_entries` |
 | Other | `documents`, `ai_command_plans`, `audit_logs` |
 
 ## Relationship patterns
@@ -35,6 +37,24 @@ and a single wide table with six nullable foreign keys.
 with a CHECK constraint that exactly one is set. Used only where there are two
 or three possible parents. Prisma cannot express this, so the constraint lives
 in migration SQL.
+
+**Reference data — `activities`.** The only table here that is not user-owned.
+Its twelve rows are inserted by the migration that creates it, so a fresh
+deployment has a working calculator without anyone running a seed script. The
+same list is mirrored in `prisma/activities.ts` for tests to restore after they
+truncate; `tests/fitness.test.ts` asserts the two still agree.
+
+**Denormalised history — `workout_entries`.** Each row copies the activity's
+name, icon and rate rather than joining at read time, and `activityId` is
+`SetNull` rather than `Cascade`. History is a record of what the user was told
+at the time; re-pricing an old entry because the catalogue changed would rewrite
+their past.
+
+**Measurements — `fitness_profiles`.** Height and weight are integer millimetres
+and grams for the same reason money is stored in minor units: both are entered
+in one unit system and read back in another, so every value round-trips through
+a conversion, and floats accumulate error across those trips until 5′10″ comes
+back as 5′9″.
 
 **Recurrence.** A rule, a template task (`isTemplate`), and instances linked by
 `seriesId`. `@@unique([seriesId, occurrenceOn])` makes lazy expansion idempotent.
@@ -52,6 +72,18 @@ Applied in `prisma/migrations/*_arc_constraints_and_search/migration.sql`:
 - `events_end_after_start`, `budgets_period_ordered`
 - `expenses_amount_non_negative`, `budgets_limit_non_negative`
 - `tasks_no_self_parent`, `tasks_no_self_series`
+
+Applied in `prisma/migrations/*_fitness_onboarding_and_calorie_burn/migration.sql`:
+
+- `fitness_profiles_age_range` (13–120), `fitness_profiles_height_range`,
+  `fitness_profiles_weight_range`, `fitness_profiles_first_name_present`
+- `workout_entries_duration_range` (1–1440 minutes),
+  `workout_entries_rate_positive`, `workout_entries_burn_positive`
+- `activities_rate_positive`
+
+These restate the bounds the zod schemas enforce. Validation protects the user
+from a typo; the constraints protect the data from a code path that forgot to
+validate.
 
 All verified by inserting violating rows and asserting rejection, plus a
 negative control asserting valid rows are accepted.

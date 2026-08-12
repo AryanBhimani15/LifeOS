@@ -2,6 +2,7 @@ import NextAuth, { type DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
+import { accountExists } from "@/lib/authz";
 import { DUMMY_HASH, verifyPassword } from "@/lib/password";
 import { credentialsSchema } from "@/lib/validation/auth";
 import { recordAudit } from "@/lib/audit";
@@ -84,7 +85,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
-      if (token.sub) session.user.id = token.sub;
+      // Leaving `id` unset is what marks a session as signed-out to every
+      // consumer, so a cookie naming a user who no longer exists resolves to
+      // "not signed in" rather than to an id that breaks the next query.
+      if (token.sub && (await accountExists(token.sub))) session.user.id = token.sub;
       return session;
     },
   },

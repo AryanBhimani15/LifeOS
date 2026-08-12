@@ -33,6 +33,29 @@ export type DbClient = typeof db | Prisma.TransactionClient;
  * through this module before it reaches the database.
  */
 
+/**
+ * Whether the account named by a credential still exists.
+ *
+ * Both credential formats — the Auth.js session cookie and the mobile bearer
+ * token — are self-contained JWTs. They keep verifying perfectly after the row
+ * they name has gone, which happens whenever an account is deleted or a
+ * database is restored from a snapshot. The signature is valid; the user is
+ * not.
+ *
+ * Without this check that phantom id flows into every query and surfaces as a
+ * foreign-key error in the middle of an unrelated request — the user is told
+ * "something went wrong" when the truth is "you are signed out". It also means
+ * deleting an account actually revokes access, rather than leaving a working
+ * cookie until it expires a month later.
+ *
+ * One indexed primary-key lookup per request is the price, which is the right
+ * trade for never trusting a token that outlived its subject.
+ */
+export async function accountExists(userId: string): Promise<boolean> {
+  const count = await db.user.count({ where: { id: userId } });
+  return count > 0;
+}
+
 /** Models a client may reference by id in a request payload. */
 export type OwnedModel =
   | "project"
