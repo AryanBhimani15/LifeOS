@@ -10,6 +10,7 @@ import { instantInZone, todayDateInZone, todayInZone } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
 import type { TaskStatus } from "@/generated/prisma/enums";
 import { createEvent } from "@/lib/repositories/events";
+import { assertSafeMinorUnits, toMinorUnits } from "@/lib/money";
 
 /**
  * Server actions for the app UI.
@@ -73,6 +74,142 @@ export async function addTodayTaskAction(title: string): Promise<{ error?: strin
   );
   revalidatePath("/today");
   revalidatePath("/tasks");
+  return {};
+}
+
+/** Money is deliberately a small student planner, not a pretend banking feed.
+ * These actions write the same Expense/Budget rows used by capture and AI. */
+export async function addMoneyExpenseAction(input: {
+  amount: number;
+  description: string;
+  categoryId?: string | null;
+}): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const description = input.description.trim();
+  if (!description) return { error: "Add a short description." };
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "Enter an amount greater than zero." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { timezone: true } });
+  const currency = "INR";
+  const amountMinor = toMinorUnits(input.amount, currency);
+  try { assertSafeMinorUnits(amountMinor); } catch { return { error: "That amount is too large." }; }
+  if (input.categoryId) {
+    const category = await db.expenseCategory.findFirst({ where: { id: input.categoryId, userId }, select: { id: true } });
+    if (!category) return { error: "That category no longer exists." };
+  }
+  await db.expense.create({
+    data: {
+      userId,
+      description: description.slice(0, 200),
+      amountMinor,
+      currency,
+      categoryId: input.categoryId ?? null,
+      kind: "EXPENSE",
+      spentOn: todayDateInZone(settings?.timezone ?? "UTC"),
+    },
+  });
+  await db.userSettings.update({ where: { userId }, data: { currency: "INR" } });
+  revalidatePath("/money");
+  revalidatePath("/today");
+  return {};
+}
+
+export async function addMoneyIncomeAction(input: { amount: number; description: string }): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const description = input.description.trim();
+  if (!description) return { error: "Say where the money came from." };
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "Enter an amount greater than zero." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { currency: true, timezone: true } });
+  const currency = "INR";
+  const amountMinor = toMinorUnits(input.amount, currency);
+  try { assertSafeMinorUnits(amountMinor); } catch { return { error: "That amount is too large." }; }
+  await db.expense.create({ data: { userId, description: description.slice(0, 200), amountMinor, currency, kind: "INCOME", spentOn: todayDateInZone(settings?.timezone ?? "UTC") } });
+  // Money is explicitly INR for this student-focused app, including accounts
+  // created before the INR default was introduced.
+  await db.userSettings.update({ where: { userId }, data: { currency: "INR" } });
+  revalidatePath("/money");
+  return {};
+}
+
+export async function addRecurringExpenseAction(input: { amount: number; description: string; categoryId?: string | null; intervalDays?: number }): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const description = input.description.trim();
+  if (!description) return { error: "Name this recurring expense." };
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "Enter an amount greater than zero." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { timezone: true } });
+  const amountMinor = toMinorUnits(input.amount, "INR");
+  try { assertSafeMinorUnits(amountMinor); } catch { return { error: "That amount is too large." }; }
+  if (input.categoryId) {
+    const category = await db.expenseCategory.findFirst({ where: { id: input.categoryId, userId }, select: { id: true } });
+    if (!category) return { error: "That category no longer exists." };
+  }
+  await db.recurringExpense.create({ data: { userId, description: description.slice(0, 200), amountMinor, currency: "INR", categoryId: input.categoryId ?? null, intervalDays: input.intervalDays === 7 ? 7 : 1, startsOn: todayDateInZone(settings?.timezone ?? "UTC") } });
+  await db.userSettings.update({ where: { userId }, data: { currency: "INR" } });
+  revalidatePath("/money");
+  return {};
+}
+
+export async function setPocketMoneyAction(amount: number): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter your monthly pocket money." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { currency: true, timezone: true } });
+  const currency = "INR";
+  const amountMinor = toMinorUnits(amount, currency);
+  try { assertSafeMinorUnits(amountMinor); } catch { return { error: "That amount is too large." }; }
+  const zone = settings?.timezone ?? "UTC";
+  const month = todayInZone(zone).slice(0, 7);
+  const periodStart = new Date(`${month}-01T00:00:00.000Z`);
+  const nextMonth = new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1, 1));
+  const existing = await db.expense.findFirst({
+    where: { userId, kind: "INCOME", description: "Monthly pocket money", spentOn: { gte: periodStart, lt: nextMonth } },
+    select: { id: true },
+  });
+  if (existing) {
+    await db.expense.update({ where: { id: existing.id }, data: { amountMinor, currency } });
+  } else {
+    await db.expense.create({ data: { userId, kind: "INCOME", description: "Monthly pocket money", amountMinor, currency, spentOn: periodStart } });
+  }
+  await db.userSettings.update({ where: { userId }, data: { currency: "INR" } });
+  revalidatePath("/money");
+  return {};
+}
+
+export async function addSavingsPlanAction(input: { name: string; target: number }): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  const name = input.name.trim();
+  if (!name) return { error: "Name what you’re saving for." };
+  if (!Number.isFinite(input.target) || input.target <= 0) return { error: "Enter a savings target." };
+  const settings = await db.userSettings.findUnique({ where: { userId }, select: { currency: true, timezone: true } });
+  const currency = "INR";
+  const limitMinor = toMinorUnits(input.target, currency);
+  try { assertSafeMinorUnits(limitMinor); } catch { return { error: "That amount is too large." }; }
+  const zone = settings?.timezone ?? "UTC";
+  const month = todayInZone(zone).slice(0, 7);
+  const periodStart = new Date(`${month}-01T00:00:00.000Z`);
+  const periodEnd = new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1, 0));
+  await db.budget.create({ data: { userId, name: `Save · ${name}`.slice(0, 120), limitMinor, currency, periodStart, periodEnd } });
+  await db.userSettings.update({ where: { userId }, data: { currency: "INR" } });
+  revalidatePath("/money");
+  return {};
+}
+
+/** Recording money actually set aside is separate from setting the goal. The
+ * planner can then lower the daily savings amount instead of starting over. */
+export async function addSavingsDepositAction(input: { budgetId: string; amount: number }): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "Enter an amount greater than zero." };
+  const plan = await db.budget.findFirst({ where: { id: input.budgetId, userId, categoryId: null, name: { startsWith: "Save ·" } }, select: { id: true, limitMinor: true, savedMinor: true } });
+  if (!plan) return { error: "That savings plan no longer exists." };
+  const amountMinor = toMinorUnits(input.amount, "INR");
+  try { assertSafeMinorUnits(amountMinor); } catch { return { error: "That amount is too large." }; }
+  const deposited = Math.min(amountMinor, plan.limitMinor - plan.savedMinor);
+  if (deposited <= 0) return { error: "This savings goal is already fully funded." };
+  await db.$transaction([
+    db.budget.update({ where: { id: plan.id }, data: { savedMinor: plan.savedMinor + deposited } }),
+    // A deposit is the moment savings become real: it leaves the spendable
+    // cash balance, but planning a goal alone never does.
+    db.expense.create({ data: { userId, kind: "EXPENSE", description: `Savings · ${plan.id}`, amountMinor: deposited, currency: "INR", spentOn: todayDateInZone("Asia/Kolkata") } }),
+  ]);
+  revalidatePath("/money");
   return {};
 }
 

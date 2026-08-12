@@ -32,6 +32,8 @@ export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   timezone: z.string().max(64).optional(),
+  /** Required only when SIGNUP_INVITE_CODE is set. See src/lib/signup.ts. */
+  invite: z.string().max(200).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

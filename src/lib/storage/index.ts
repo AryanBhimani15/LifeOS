@@ -90,6 +90,25 @@ export function storage(): Storage {
   const driver = process.env.STORAGE_DRIVER ?? "local";
   switch (driver) {
     case "local":
+      /**
+       * Local disk in production is usually data loss waiting to happen.
+       *
+       * Most hosts give a container a fresh filesystem on every deploy and
+       * every restart, so uploaded files survive until the next push and then
+       * vanish — while their rows stay in the database, pointing at nothing.
+       * That failure is silent and permanent, which is exactly the kind worth
+       * refusing to start over. A host with a real persistent volume opts in.
+       */
+      if (
+        process.env.NODE_ENV === "production" &&
+        process.env.STORAGE_ALLOW_LOCAL !== "true"
+      ) {
+        throw new Error(
+          "STORAGE_DRIVER is 'local' in production, where uploaded files are usually lost on the next deploy. " +
+            "Set STORAGE_DRIVER=azure (with AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER), " +
+            "or set STORAGE_ALLOW_LOCAL=true if this host has a persistent volume mounted at STORAGE_LOCAL_DIR.",
+        );
+      }
       cached = new LocalStorage(process.env.STORAGE_LOCAL_DIR ?? ".storage");
       return cached;
     case "azure":

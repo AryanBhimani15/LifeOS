@@ -1,0 +1,17 @@
+# Keeps secrets and local state out of the build context, and the image small.
+node_modules
+.next
+.git
+.github
+.storage
+.storage-test
+.env
+.env.*
+!.env.example
+*.log
+coverage
+.DS_Store
+docs
+tests
+scripts
+src/generated

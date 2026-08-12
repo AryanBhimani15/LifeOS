@@ -230,7 +230,7 @@ export async function answerQuery(userId: string, kind: QueryKind): Promise<Quer
         where: { userId },
         select: { currency: true },
       });
-      const currency = settings?.currency ?? "USD";
+      const currency = settings?.currency ?? "INR";
       const total = rows.reduce((sum, r) => sum + (r._sum.amountMinor ?? 0), 0);
 
       return {

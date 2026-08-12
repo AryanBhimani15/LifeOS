@@ -317,7 +317,7 @@ async function runAction(
     }
 
     case "log_expense": {
-      const currency = (action.currency ?? "USD").toUpperCase();
+      const currency = (action.currency ?? "INR").toUpperCase();
       const categoryId = await resolveOrCreateCategory(userId, action.categoryName, tx);
       // Currency drives the minor-unit exponent: JPY has none, BHD has three.
       // Converting every amount as if it were USD stores the wrong number.

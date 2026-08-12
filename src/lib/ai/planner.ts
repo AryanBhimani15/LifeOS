@@ -140,12 +140,12 @@ async function buildContext(userId: string) {
 
   return {
     timezone,
-    currency: settings?.currency ?? "USD",
+    currency: settings?.currency ?? "INR",
     prompt: [
       `User's timezone: ${timezone}`,
       `User's current local time: ${local}`,
       `Current UTC instant: ${now.toISOString()}`,
-      `Default currency: ${settings?.currency ?? "USD"}`,
+      `Default currency: ${settings?.currency ?? "INR"}`,
       projects.length
         ? `Existing projects: ${projects.map((p) => p.name).join(", ")}`
         : "The user has no projects yet.",

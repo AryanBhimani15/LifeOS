@@ -4,8 +4,9 @@ import { hashPassword } from "@/lib/password";
 import { registerSchema } from "@/lib/validation/auth";
 import { recordAudit, requestMeta } from "@/lib/audit";
 import { RATE_LIMITS } from "@/lib/rate-limit";
-import { conflict } from "@/lib/errors";
+import { conflict, forbidden } from "@/lib/errors";
 import { DEFAULT_CATEGORIES } from "@/lib/defaults";
+import { INVITE_REJECTED, inviteAccepted } from "@/lib/signup";
 
 /** Prisma reports a unique-constraint failure as P2002. */
 function isUniqueViolation(error: unknown): boolean {
@@ -37,6 +38,9 @@ export const POST = defineRoute({
   },
   handler: async ({ body, request }) => {
     const { name, email, password, timezone } = body;
+
+    // After the per-email rate limit above, so guessing codes is not free.
+    if (!inviteAccepted(body.invite)) throw forbidden(INVITE_REJECTED);
 
     const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
     if (existing) {

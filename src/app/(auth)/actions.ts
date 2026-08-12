@@ -8,6 +8,7 @@ import { hashPassword } from "@/lib/password";
 import { registerSchema } from "@/lib/validation/auth";
 import { recordAudit } from "@/lib/audit";
 import { consumeRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { INVITE_REJECTED, inviteAccepted } from "@/lib/signup";
 import { DEFAULT_CATEGORIES } from "@/lib/defaults";
 
 /**
@@ -22,6 +23,14 @@ import { DEFAULT_CATEGORIES } from "@/lib/defaults";
 export interface FormState {
   error?: string;
   fieldErrors?: Record<string, string[]>;
+  /**
+   * What was typed, returned so a rejected submission does not empty the form.
+   *
+   * React resets an uncontrolled form once its action resolves, so without this
+   * a mistyped invite code costs the user their name, email and password too.
+   * The password is deliberately absent — it is never sent back to the browser.
+   */
+  values?: { name?: string; email?: string; invite?: string };
 }
 
 /** Prisma reports a unique-constraint failure as P2002. */
@@ -64,21 +73,30 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
     timezone: String(formData.get("timezone") ?? "") || undefined,
   };
 
+  const invite = String(formData.get("invite") ?? "");
+  // Handed back with every failure so the form refills itself. See FormState.
+  const values = { name: raw.name, email: raw.email, invite };
+
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {
     const tree = parsed.error.flatten();
-    return { error: "Please fix the highlighted fields.", fieldErrors: tree.fieldErrors };
+    return { error: "Please fix the highlighted fields.", fieldErrors: tree.fieldErrors, values };
   }
 
   const { name, email, password, timezone } = parsed.data;
 
   const limit = await consumeRateLimit(`register:${email}`, RATE_LIMITS.registerIdentity);
   if (!limit.allowed) {
-    return { error: "Too many attempts for this address. Try again later." };
+    return { error: "Too many attempts for this address. Try again later.", values };
+  }
+
+  // Checked after the rate limit, so guessing codes costs an attempt each time.
+  if (!inviteAccepted(invite)) {
+    return { error: INVITE_REJECTED, fieldErrors: { invite: [INVITE_REJECTED] }, values };
   }
 
   const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
-  if (existing) return { error: "An account with that email already exists." };
+  if (existing) return { error: "An account with that email already exists.", values };
 
   const passwordHash = await hashPassword(password);
 

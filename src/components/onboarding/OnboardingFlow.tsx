@@ -420,12 +420,12 @@ export function OnboardingFlow({
   );
 
   const stageClass = `ob-stage ob-${phase} ${direction === 1 ? "ob-dir-fwd" : "ob-dir-back"}`;
-  // Picking a sex retints the whole product. Applied here as well as in the
-  // app shell so the change is visible on the very screen where it is chosen.
-  const palette = draft.sex === "FEMALE" ? "rose" : "forest";
 
   return (
-    <div className="ob-shell" data-palette={palette}>
+    // Setup wears the default palette. It used to retint on the sex question —
+    // answering "male" turned the product green — which made a health input
+    // double as a theme picker. The palette is a setting now, in Settings.
+    <div className="ob-shell" data-palette="rose">
       <div className="ob-frame">
         {!done && (
           <div className="ob-progress" role="progressbar" aria-valuenow={index + 1} aria-valuemin={1} aria-valuemax={QUESTIONS.length} aria-label="Setup progress">

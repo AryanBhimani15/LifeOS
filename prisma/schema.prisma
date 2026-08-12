@@ -46,29 +46,30 @@ model User {
   sessions Session[]
   settings UserSettings?
 
-  projects      Project[]
-  tasks         Task[]
-  events        Event[]
-  notes         Note[]
-  noteFolders   NoteFolder[]
-  habits        Habit[]
-  habitLogs     HabitCompletion[]
-  goals         Goal[]
-  journal       JournalEntry[]
-  expenses      Expense[]
-  budgets       Budget[]
-  categories    ExpenseCategory[]
-  documents     Document[]
-  tags          Tag[]
-  reminders     Reminder[]
-  auditLogs     AuditLog[]
-  commandPlans  AiCommandPlan[]
-  recurrences   RecurrenceRule[]
-  refreshTokens RefreshToken[]
-  devices       Device[]
-  fitness       FitnessProfile?
-  workouts      WorkoutEntry[]
-  workoutPlans  WorkoutPlan[]
+  projects          Project[]
+  tasks             Task[]
+  events            Event[]
+  notes             Note[]
+  noteFolders       NoteFolder[]
+  habits            Habit[]
+  habitLogs         HabitCompletion[]
+  goals             Goal[]
+  journal           JournalEntry[]
+  expenses          Expense[]
+  budgets           Budget[]
+  categories        ExpenseCategory[]
+  recurringExpenses RecurringExpense[]
+  documents         Document[]
+  tags              Tag[]
+  reminders         Reminder[]
+  auditLogs         AuditLog[]
+  commandPlans      AiCommandPlan[]
+  recurrences       RecurrenceRule[]
+  refreshTokens     RefreshToken[]
+  devices           Device[]
+  fitness           FitnessProfile?
+  workouts          WorkoutEntry[]
+  workoutPlans      WorkoutPlan[]
 
   @@map("users")
 }
@@ -120,10 +121,18 @@ model UserSettings {
   userId String @unique
 
   theme         String  @default("system") // system | light | dark
+  /// Which tint the product wears: rose | forest.
+  ///
+  /// A stored preference, because it used to be inferred from the user's sex —
+  /// `palette={profile.sex === "FEMALE" ? "rose" : "forest"}`. That made the
+  /// colour of the app a thing you could only change by editing a field that
+  /// also feeds the BMR calculation, which is both a strange coupling and a
+  /// worse assumption. It is a choice now.
+  palette       String  @default("rose")
   timezone      String  @default("UTC") // IANA zone; drives recurrence expansion
   weekStartsOn  Int     @default(1) // 0 = Sunday
   locale        String  @default("en-US")
-  currency      String  @default("USD")
+  currency      String  @default("INR")
   emailDigest   Boolean @default(false)
   digestHour    Int     @default(7)
   aiEnabled     Boolean @default(true)
@@ -885,9 +894,10 @@ model ExpenseCategory {
   color  String  @default("#f59e0b")
   icon   String?
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expenses Expense[]
-  budgets  Budget[]
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses          Expense[]
+  budgets           Budget[]
+  recurringExpenses RecurringExpense[]
 
   @@unique([userId, name])
   @@map("expense_categories")
@@ -900,7 +910,7 @@ model Expense {
   kind        ExpenseKind @default(EXPENSE)
   /// Minor units (cents). Never a float — binary floats cannot represent 0.10.
   amountMinor Int
-  currency    String      @default("USD")
+  currency    String      @default("INR")
   description String
   merchant    String?
   spentOn     DateTime    @db.Date
@@ -922,7 +932,9 @@ model Budget {
   categoryId  String?
   name        String
   limitMinor  Int
-  currency    String   @default("USD")
+  /// For savings plans this is the money already set aside toward limitMinor.
+  savedMinor  Int      @default(0)
+  currency    String   @default("INR")
   periodStart DateTime @db.Date
   periodEnd   DateTime @db.Date
   createdAt   DateTime @default(now())
@@ -932,6 +944,29 @@ model Budget {
 
   @@index([userId, periodStart])
   @@map("budgets")
+}
+
+/// A simple daily/weekly/monthly spending plan. Instances are created only
+/// when they are due, so a rickshaw plan cannot accidentally duplicate spend.
+model RecurringExpense {
+  id           String    @id @default(cuid())
+  userId       String
+  categoryId   String?
+  description  String
+  amountMinor  Int
+  currency     String    @default("INR")
+  intervalDays Int       @default(1)
+  startsOn     DateTime  @db.Date
+  lastLoggedOn DateTime? @db.Date
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, active])
+  @@map("recurring_expenses")
 }
 
 // ---------------------------------------------------------------------------

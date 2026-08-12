@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/session";
 import { getProfile } from "@/lib/repositories/fitness";
+import { getPalette } from "@/lib/repositories/settings";
 import { AppShell } from "@/components/AppShell";
 
 /**
@@ -20,7 +21,12 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   // Resolved on the server and rendered into the markup, so the tint is correct
   // on the first paint rather than flipping once the client hydrates.
-  return (
-    <AppShell palette={profile.sex === "FEMALE" ? "rose" : "forest"}>{children}</AppShell>
-  );
+  //
+  // It used to be `profile.sex === "FEMALE" ? "rose" : "forest"`. That made the
+  // colour of the product a thing you could only change by editing a field that
+  // also feeds your BMR — and assumed something about you on the way. It is a
+  // setting now.
+  const palette = await getPalette(userId);
+
+  return <AppShell palette={palette}>{children}</AppShell>;
 }

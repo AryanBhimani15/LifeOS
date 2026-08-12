@@ -20,7 +20,7 @@ const EXPONENTS: Record<string, number> = {
   TND: 3,
 };
 
-export function minorUnitExponent(currency = "USD"): number {
+export function minorUnitExponent(currency = "INR"): number {
   return EXPONENTS[currency.toUpperCase()] ?? 2;
 }
 
@@ -30,16 +30,16 @@ export function minorUnitExponent(currency = "USD"): number {
  * Rounds rather than truncates: `Math.trunc(1.15 * 100)` is 114 because 1.15 is
  * stored as 1.14999…, which quietly loses a cent on roughly every eighth value.
  */
-export function toMinorUnits(amount: number, currency = "USD"): number {
+export function toMinorUnits(amount: number, currency = "INR"): number {
   const factor = 10 ** minorUnitExponent(currency);
   return Math.round(amount * factor);
 }
 
-export function toMajorUnits(minor: number, currency = "USD"): number {
+export function toMajorUnits(minor: number, currency = "INR"): number {
   return minor / 10 ** minorUnitExponent(currency);
 }
 
-export function formatMoney(minor: number, currency = "USD", locale = "en-US"): string {
+export function formatMoney(minor: number, currency = "INR", locale = "en-IN"): string {
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,

@@ -4,13 +4,14 @@ An AI-powered personal command center: tasks, projects, calendar, goals, habits,
 notes, journal, and expenses in one application, with a natural-language command
 bar that turns a sentence into structured, confirmed actions.
 
-> **Status: web app and mobile companion working; several sections still stubs.**
+> **Status: web app and mobile companion working; two sections still stubs.**
 > Auth, onboarding, the Today view, the Kanban board, task capture, events with
-> file attachments, the calorie burn tracker and the AI command centre all work
-> end to end against Postgres, covered by 198 server tests plus browser and API
-> contract suites. Projects, Calendar, Goals, Habits,
-> Notes, Journal and Money have schema and pages but no APIs yet, and say so on
-> screen rather than showing sample data. See [Status](#status) for the breakdown.
+> file attachments, goals, habits, the calendar, the calorie burn tracker,
+> settings and the AI command centre all work end to end against Postgres,
+> covered by 326 server tests plus browser and API contract suites. Projects and
+> Journal have schema and pages but no APIs yet, and say so on screen rather than
+> showing sample data. See [Status](#status) for the breakdown, and
+> [docs/deployment.md](docs/deployment.md) before putting it anywhere shared.
 
 ## What works today
 
@@ -149,12 +150,18 @@ plan and ask a question rather than guessing.
 - Ownership enforcement and cross-user isolation
 - Tasks API, one capture pipeline, deterministic date parsing
 - Events API and file attachments (storage driver: local or Azure Blob)
+- Goals API — four progress modes, milestones, links to existing tasks and habits
+- Habits API — schedule-aware streaks, completion history, tracker grid
+- Calendar — one view over tasks, exams, events, goal deadlines, workouts and
+  habit schedules; rescheduling edits the original row rather than copying it
+- Settings — timezone, week start, currency, palette, AI on/off
 - Fitness API (profile, activities, calculate, history, stats)
 - AI command centre (plan, resolve, confirm, execute, query)
 - Audit logging, money handling, timezone-correct dates
 
 - Web UI — login/register, onboarding, Today, Kanban board with drag-and-drop,
-  calorie burn calculator with history and weekly chart, ⌘K command bar
+  goals, habits, calendar, exams, notes, calorie burn calculator with history
+  and weekly chart, ⌘K command bar
 - Mobile companion — voice capture, plan receipt, confirm (see docs/mobile.md)
 - Token auth for native clients, alongside cookie sessions for the browser
 
@@ -164,10 +171,13 @@ plan and ask a question rather than guessing.
   published rate; the onboarding profile is stored and shown but deliberately not
   applied, because presenting an invented health number as a real one is worse
   than presenting an obviously generic one.
-- API routes for projects, notes, goals, habits, journal, expenses, documents
-  (schema and the repository pattern exist; those routes do not). Their pages
-  render an explicit "not built yet" state rather than fake rows.
+- API routes for projects and journal (schema and the repository pattern exist;
+  those routes do not). Their pages render an explicit "not built yet" state
+  rather than fake rows.
 - Recurrence materialisation job
+- Email delivery of any kind — so no email verification, no password reset, and
+  no way to change the address you sign in with
+- Reminder delivery. Task and event reminders are stored; nothing sends them.
 - Analytics endpoints and charts
 - Global search endpoint
 - Push notification delivery (registration works; APNs credentials do not exist)

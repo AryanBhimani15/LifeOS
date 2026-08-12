@@ -1,13 +1,34 @@
-import { NotBuiltYet } from "@/components/NotBuiltYet";
+import { requireUserId } from "@/lib/session";
+import { getSettings } from "@/lib/repositories/settings";
+import { SettingsForm } from "@/components/settings/SettingsForm";
 
 export const metadata = { title: "LifeOS — Settings" };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const userId = await requireUserId();
+  const settings = await getSettings(userId);
+
   return (
-    <NotBuiltYet
-      title="Settings"
-      what="Profile, theme, notifications, AI settings and data export"
-      schemaReady="the user_settings table, created for every new account at signup"
-    />
+    <>
+      <header className="topbar goals-topbar">
+        <div>
+          <p className="eyebrow">PREFERENCES</p>
+          <h1>Settings</h1>
+          <p className="goals-subtitle">How LifeOS behaves, and who it thinks you are.</p>
+        </div>
+      </header>
+
+      <SettingsForm
+        initial={{
+          name: settings.name,
+          email: settings.email,
+          timezone: settings.timezone,
+          weekStartsOn: settings.weekStartsOn,
+          currency: settings.currency,
+          palette: settings.palette,
+          aiEnabled: settings.aiEnabled,
+        }}
+      />
+    </>
   );
 }

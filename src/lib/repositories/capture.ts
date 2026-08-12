@@ -97,7 +97,7 @@ export async function capture(userId: string, input: CaptureInput): Promise<Capt
         select: { currency: true, timezone: true },
       });
       const parsed = extractAmount(input.text);
-      const currency = parsed?.currency ?? settings?.currency ?? "USD";
+      const currency = parsed?.currency ?? settings?.currency ?? "INR";
       const amountMinor = parsed ? toMinorUnits(parsed.amountMajor, currency) : 0;
 
       try {

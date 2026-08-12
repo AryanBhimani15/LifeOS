@@ -29,7 +29,7 @@ export async function getTodayData(userId: string) {
     select: { timezone: true, currency: true, weekStartsOn: true },
   });
   const zone = settings?.timezone ?? "UTC";
-  const currency = settings?.currency ?? "USD";
+  const currency = settings?.currency ?? "INR";
   const weekStartsOn = settings?.weekStartsOn ?? 1;
 
   const now = new Date();
