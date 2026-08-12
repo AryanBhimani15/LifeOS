@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { addDays, endOfDayInZone, startOfDayInZone, todayInZone } from "@/lib/dates";
+import { currentStreak } from "@/lib/habits";
 import { sumMinor } from "@/lib/money";
 
 /**
@@ -25,10 +26,11 @@ export interface NowItem {
 export async function getTodayData(userId: string) {
   const settings = await db.userSettings.findUnique({
     where: { userId },
-    select: { timezone: true, currency: true },
+    select: { timezone: true, currency: true, weekStartsOn: true },
   });
   const zone = settings?.timezone ?? "UTC";
   const currency = settings?.currency ?? "USD";
+  const weekStartsOn = settings?.weekStartsOn ?? 1;
 
   const now = new Date();
   const dayStart = startOfDayInZone(now, zone);
@@ -66,8 +68,12 @@ export async function getTodayData(userId: string) {
       select: {
         id: true,
         name: true,
+        cadence: true,
+        byWeekday: true,
+        targetPerWeek: true,
+        startedOn: true,
         completions: {
-          where: { completedOn: { gte: addDays(dayStart, -60) } },
+          where: { completedOn: { gte: addDays(dayStart, -400) } },
           select: { completedOn: true },
           orderBy: { completedOn: "desc" },
         },
@@ -108,12 +114,31 @@ export async function getTodayData(userId: string) {
     currency,
     now: rankNow(openTasks, now, dayEnd),
     events,
-    habits: habits.map((h) => ({
-      id: h.id,
-      name: h.name,
-      doneToday: h.completions.some((c) => c.completedOn.toISOString().slice(0, 10) === today),
-      streak: streakLength(h.completions.map((c) => c.completedOn), today),
-    })),
+    // Streaks come from the same rules the Habits page uses. Two definitions of
+    // "streak" in one product means two different numbers for the same habit on
+    // two different screens, which is the kind of thing nobody reports as a bug
+    // and everybody stops trusting.
+    habits: habits.map((h) => {
+      const completed = new Set(h.completions.map((c) => c.completedOn.toISOString().slice(0, 10)));
+      const streak = currentStreak(
+        {
+          cadence: h.cadence,
+          byWeekday: h.byWeekday,
+          targetPerWeek: h.targetPerWeek,
+          startedOn: h.startedOn ? h.startedOn.toISOString().slice(0, 10) : null,
+        },
+        completed,
+        today,
+        weekStartsOn,
+      );
+      return {
+        id: h.id,
+        name: h.name,
+        doneToday: completed.has(today),
+        streak: streak.count,
+        streakUnit: streak.unit,
+      };
+    }),
     goals: goals.map((g) => {
       const total = g.milestones.length;
       const done = g.milestones.filter((m) => m.completedAt).length;
@@ -210,18 +235,7 @@ function formatTime(date: Date) {
 }
 
 /** Counts consecutive days ending today (or yesterday, if today is not done yet). */
-function streakLength(dates: Date[], today: string): number {
-  const set = new Set(dates.map((d) => d.toISOString().slice(0, 10)));
-  const cursor = new Date(`${today}T00:00:00Z`);
-
-  // A streak stays alive until the end of today, so start from yesterday when
-  // today has not been ticked off — otherwise every streak reads as 0 each morning.
-  if (!set.has(today)) cursor.setUTCDate(cursor.getUTCDate() - 1);
-
-  let streak = 0;
-  while (set.has(cursor.toISOString().slice(0, 10))) {
-    streak += 1;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-  return streak;
-}
+/* The local `streakLength` that used to live here counted consecutive days and
+   nothing else, which is only correct for a daily habit — a Mon/Wed/Fri habit
+   lost its streak every Saturday. It has been replaced by `currentStreak` in
+   src/lib/habits.ts, which knows what each habit was actually asked to do. */

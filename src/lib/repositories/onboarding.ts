@@ -44,7 +44,10 @@ export async function completeOnboarding(
   input: FitnessProfileInput,
 ): Promise<SetupSummary> {
   const [settings, existing, activePlan, goalCount, habitCount, catalogue] = await Promise.all([
-    db.userSettings.findUnique({ where: { userId }, select: { weekStartsOn: true } }),
+    db.userSettings.findUnique({
+      where: { userId },
+      select: { weekStartsOn: true, timezone: true },
+    }),
     db.fitnessProfile.findUnique({
       where: { userId },
       select: { primaryGoal: true, activityLevel: true, lifeContext: true },
@@ -163,8 +166,14 @@ export async function completeOnboarding(
           userId,
           name: habit.name,
           description: habit.description,
+          cadence: habit.cadence,
+          category: habit.category,
+          icon: habit.icon,
           targetPerWeek: habit.targetPerWeek,
           color: habit.color,
+          // Starts today, so setup does not hand someone a habit that is
+          // already showing missed days.
+          startedOn: new Date(`${todayInZone(settings?.timezone ?? "UTC")}T00:00:00Z`),
         })),
       });
     }

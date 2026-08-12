@@ -197,10 +197,26 @@ enum GoalProgressMode {
   TASKS
 }
 
+/// How often a habit is expected.
+///
+/// "Weekly" is deliberately absent: it is TIMES_PER_WEEK with a target of one,
+/// and a fourth value that behaved identically would be a second way to say the
+/// same thing — and therefore a second thing every streak calculation has to
+/// remember to handle. The picker still offers "Weekly" and maps it here.
 enum HabitCadence {
   DAILY
   SPECIFIC_DAYS
   TIMES_PER_WEEK
+}
+
+/// The filter row on the Habits page. Closed, because it is a set of tabs
+/// rather than free text — an open field would make the tabs unbuildable.
+enum HabitCategory {
+  HEALTH
+  MIND
+  STUDY
+  PERSONAL
+  OTHER
 }
 
 enum ExpenseKind {
@@ -681,11 +697,29 @@ model Habit {
   description   String?
   cadence       HabitCadence @default(DAILY)
   targetPerWeek Int          @default(7)
+  /// Weekdays this habit is expected, for SPECIFIC_DAYS. 0 = Sunday.
   byWeekday     Int[]        @default([])
   color         String       @default("#10b981")
-  archivedAt    DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+
+  category HabitCategory @default(OTHER)
+  /// A key from the icon set in src/lib/habits.ts, never arbitrary markup.
+  icon     String?
+
+  /// Reminder as minutes from local midnight — 7:00 AM is 420.
+  ///
+  /// Not a DateTime: a reminder is a wall-clock time that must stay at 7:00
+  /// when the clocks change and when the user travels. This is the same shape
+  /// `instantInZone` already takes, so turning it into an instant is one call.
+  reminderMinutes Int?
+
+  /// The day the habit begins. Days before it are not misses, they are days the
+  /// habit did not exist — which is the difference between an honest completion
+  /// rate and a discouraging one.
+  startedOn DateTime? @db.Date
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   goal        Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)

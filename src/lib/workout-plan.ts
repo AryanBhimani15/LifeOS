@@ -1,4 +1,10 @@
-import type { ActivityLevel, LifeContext, PrimaryGoal } from "@/generated/prisma/enums";
+import type {
+  ActivityLevel,
+  HabitCadence,
+  HabitCategory,
+  LifeContext,
+  PrimaryGoal,
+} from "@/generated/prisma/enums";
 
 /**
  * Turns the onboarding answers into a weekly plan.
@@ -284,6 +290,17 @@ export function starterGoals(primaryGoal: PrimaryGoal, lifeContext: LifeContext)
 export interface StarterHabit {
   name: string;
   description: string;
+  /**
+   * Set explicitly alongside `targetPerWeek`.
+   *
+   * The cadence column defaults to DAILY, so a habit created with a target of
+   * five and no cadence was being asked for all seven days — it could never
+   * hold a streak, and someone doing exactly what they signed up for would see
+   * two misses every week.
+   */
+  cadence: HabitCadence;
+  category: HabitCategory;
+  icon: string;
   targetPerWeek: number;
   color: string;
 }
@@ -298,13 +315,13 @@ export interface StarterHabit {
 export function starterHabits(primaryGoal: PrimaryGoal, lifeContext: LifeContext): StarterHabit[] {
   const movement: StarterHabit =
     primaryGoal === "BUILD_STRENGTH"
-      ? { name: "Protein with every meal", description: "Strength is built in the kitchen too.", targetPerWeek: 7, color: "#e2762c" }
-      : { name: "Walk after dinner", description: "Ten minutes, no phone.", targetPerWeek: 7, color: "#10b981" };
+      ? { name: "Protein with every meal", description: "Strength is built in the kitchen too.", cadence: "DAILY", category: "HEALTH", icon: "heart", targetPerWeek: 7, color: "#e2762c" }
+      : { name: "Walk after dinner", description: "Ten minutes, no phone.", cadence: "DAILY", category: "HEALTH", icon: "footprints", targetPerWeek: 7, color: "#10b981" };
 
   const focus: StarterHabit =
     lifeContext === "STUDENT" || lifeContext === "STUDENT_AND_WORKING"
-      ? { name: "Review notes for 15 minutes", description: "Same time each day, before it piles up.", targetPerWeek: 5, color: "#5551ed" }
-      : { name: "Plan tomorrow before you stop", description: "Five minutes at the end of the day.", targetPerWeek: 5, color: "#5551ed" };
+      ? { name: "Review notes for 15 minutes", description: "Five days a week, before it piles up.", cadence: "TIMES_PER_WEEK", category: "STUDY", icon: "book-open", targetPerWeek: 5, color: "#5551ed" }
+      : { name: "Plan tomorrow before you stop", description: "Five minutes at the end of the day.", cadence: "TIMES_PER_WEEK", category: "PERSONAL", icon: "pen-line", targetPerWeek: 5, color: "#5551ed" };
 
   return [movement, focus];
 }

@@ -176,6 +176,9 @@ button { border: 0; cursor: pointer; color: inherit; }
 .command-theme { font-size: 11.5px; color: var(--muted, #94938a); }
 .command-theme:hover { color: var(--accent, #2f5a4c); }
 .spin { animation: spin 1s linear infinite; }
+/* Visible to screen readers, not on screen. Used where a control is meaningful
+   as colour alone — a habit tracker cell needs its date and state said aloud. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast-error { background: #d0463b; color: #fff; }
 .sparkline-empty { font-size: 12.5px; color: var(--muted, #9a9a90); }
@@ -1251,3 +1254,115 @@ button { border: 0; cursor: pointer; color: inherit; }
 .home-goals-empty a { color: var(--pink); font-weight: 650; }
 .dark-mode .home-goals { background: var(--panel); border-color: var(--line); }
 .dark-mode .home-goals h2, .dark-mode .home-goals li b { color: var(--ink); }
+
+/* ---------------------------------------------------------------------------
+   Habits
+
+   Reuses the Goals furniture — .goal-stat, .goal-toolbar, .goal-panel, the
+   sheet — because they are the same components doing the same job. What is new
+   here is only what habits actually need: the tick, the weekday picker, and the
+   tracker grid with its four states.
+--------------------------------------------------------------------------- */
+.habit-new-button { display: inline-flex; align-items: center; gap: 7px; padding: 11px 16px; color: #fff; background: var(--pink); border-radius: 10px; font-size: 13px; font-weight: 700; box-shadow: 0 7px 16px #f2387030; transition: filter .2s, transform .2s; }
+.habit-new-button:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.habit-secondary-button { display: inline-flex; align-items: center; gap: 7px; padding: 10px 14px; color: #5c4b53; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 10px; font-size: 12px; font-weight: 650; }
+.habit-secondary-button:hover { color: var(--pink); border-color: var(--pink); }
+.habit-stat-of { color: #b6a4ab; font: 700 14px var(--sans); }
+
+.habit-panel { margin-top: 16px; padding: 18px 20px; background: var(--pink-card); border: 1px solid var(--pink-card-line); border-radius: 15px; box-shadow: var(--pink-shadow); }
+.habit-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.habit-panel > header h2 { margin: 0; color: var(--pink-ink); font: 700 15px var(--sans); letter-spacing: -.035em; }
+.habit-panel > header span { color: var(--pink); font: 600 11px var(--code); }
+.habit-empty-inline { margin: 4px 0 2px; color: #978890; font-size: 12px; }
+
+/* One row per habit. The circle is the whole interaction. */
+.habit-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.habit-list li { display: grid; grid-template-columns: 26px 32px minmax(0, 1fr) 16px; align-items: center; gap: 12px; min-height: 54px; border-bottom: 1px solid #f8ecf0; }
+.habit-list li:last-child { border-bottom: 0; }
+.habit-tick { display: grid; place-items: center; width: 25px; height: 25px; color: transparent; background: #fff; border: 1.5px solid #efd3de; border-radius: 50%; transition: background .16s, border-color .16s, color .16s, transform .16s; }
+.habit-tick:hover:not(:disabled) { border-color: var(--pink); transform: scale(1.06); }
+.habit-list li.is-done .habit-tick { color: #fff; background: #ef5b83; border-color: #ef5b83; }
+.habit-row-icon { display: grid; place-items: center; width: 31px; height: 31px; color: var(--pink); background: var(--pink-soft); border-radius: 10px; }
+.habit-row-body { display: grid; gap: 4px; min-width: 0; color: inherit; }
+.habit-row-body b { overflow: hidden; color: #3a2d34; font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.habit-list li.is-done .habit-row-body b { color: #a4949b; }
+.habit-row-meta { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+.habit-row-meta em { display: inline-flex; align-items: center; gap: 4px; color: #8b7d84; font-size: 11px; font-style: normal; }
+.habit-row-meta em.is-hot { color: #d8517c; font-weight: 650; }
+.habit-row-meta em.habit-row-goal { color: #6d6470; }
+.habit-row-arrow { color: #c8b6bd; }
+
+/* The tracker. Four states, and they have to be tellable apart at a glance. */
+.habit-tracker-scroll { overflow-x: auto; }
+.habit-tracker table { border-collapse: separate; border-spacing: 3px; width: 100%; }
+.habit-tracker th { color: #97868d; font: 600 10px var(--code); font-weight: 600; text-align: left; }
+.habit-tracker thead th { padding-bottom: 2px; text-align: center; }
+.habit-tracker thead th.is-today { color: var(--pink); }
+.habit-tracker tbody th { display: flex; align-items: center; gap: 8px; min-width: 150px; max-width: 190px; overflow: hidden; padding-right: 8px; color: #4a3c43; font: 550 12px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
+.habit-tracker-icon { display: grid; place-items: center; flex: none; width: 22px; height: 22px; color: var(--pink); background: var(--pink-soft); border-radius: 7px; }
+.habit-cell { display: block; width: 100%; min-width: 17px; height: 17px; padding: 0; border-radius: 5px; transition: transform .12s, filter .12s; }
+.habit-cell:not(:disabled):hover { transform: scale(1.18); filter: brightness(.95); }
+.habit-cell.is-done { background: #ef5b83; }
+.habit-cell.is-missed { background: #f7dde5; box-shadow: inset 0 0 0 1px #f0c8d5; }
+.habit-cell.is-unscheduled { background: #f6f1f3; }
+.habit-cell.is-future { background: #fbf8f9; box-shadow: inset 0 0 0 1px #f4eef0; cursor: default; }
+.habit-cell.is-before-start { background: #fbf8f9; cursor: default; }
+.habit-cell.is-pad { background: transparent; }
+.habit-legend { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin: 14px 0 0; padding: 0; list-style: none; color: #8b7d84; font-size: 11px; }
+.habit-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.habit-legend i { width: 11px; height: 11px; border-radius: 3px; }
+.habit-legend i.is-done { background: #ef5b83; }
+.habit-legend i.is-missed { background: #f7dde5; box-shadow: inset 0 0 0 1px #f0c8d5; }
+.habit-legend i.is-unscheduled { background: #f6f1f3; }
+.habit-legend i.is-future { background: #fbf8f9; box-shadow: inset 0 0 0 1px #f4eef0; }
+
+/* The weekday and frequency pickers in the sheet. */
+.habit-weekdays, .habit-times { display: flex; gap: 7px; flex-wrap: wrap; }
+.habit-weekdays button, .habit-times button { min-width: 38px; height: 38px; color: #7d6b73; background: #fff; border: 1px solid #f1dce5; border-radius: 10px; font: 650 12px var(--sans); transition: color .16s, background .16s, border-color .16s; }
+.habit-weekdays button:hover, .habit-times button:hover { color: var(--pink); border-color: #f5c9d8; }
+.habit-weekdays button.is-selected, .habit-times button.is-selected { color: #fff; background: var(--pink); border-color: var(--pink); }
+
+/* History on the detail page: weeks as columns, like a contribution graph. */
+.habit-history { display: flex; gap: 9px; overflow-x: auto; padding-bottom: 4px; }
+.habit-history-days { display: grid; grid-template-rows: repeat(7, 17px); gap: 3px; flex: none; padding-top: 0; color: #a2939a; font: 9px var(--code); }
+.habit-history-days span:nth-child(1) { grid-row: 2; }
+.habit-history-days span:nth-child(2) { grid-row: 4; }
+.habit-history-days span:nth-child(3) { grid-row: 6; }
+.habit-history-grid { display: flex; gap: 3px; }
+.habit-history-week { display: grid; grid-template-rows: repeat(7, 17px); gap: 3px; }
+.habit-history-week .habit-cell { width: 17px; }
+.habit-history-hint { margin-top: 12px; }
+
+@media (max-width: 720px) {
+  .habit-list li { grid-template-columns: 26px minmax(0, 1fr) 16px; }
+  .habit-row-icon { display: none; }
+}
+
+.dark-mode .habit-panel { background: var(--panel); border-color: var(--line); }
+.dark-mode .habit-panel > header h2, .dark-mode .habit-row-body b { color: var(--ink); }
+.dark-mode .habit-tick, .dark-mode .habit-weekdays button, .dark-mode .habit-times button, .dark-mode .habit-secondary-button { background: #232722; border-color: var(--line); color: var(--ink); }
+.dark-mode .habit-cell.is-unscheduled, .dark-mode .habit-cell.is-future, .dark-mode .habit-cell.is-before-start { background: #2a2f29; box-shadow: none; }
+.dark-mode .habit-cell.is-missed { background: #4a2b36; box-shadow: none; }
+
+/* Today's habits on Home. */
+.home-habits { margin-top: 20px; padding: 18px; background: #fff; border: 1px solid var(--pink-line); border-radius: 15px; box-shadow: var(--pink-shadow); }
+.home-habits header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.home-habits header span { display: inline-flex; align-items: center; gap: 5px; color: var(--pink); font: 650 10px var(--code); letter-spacing: .07em; }
+.home-habits header a { display: inline-flex; align-items: center; color: var(--pink); font-size: 12px; font-weight: 700; }
+.home-habits h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 4px 0 0; color: var(--pink-ink); font: 700 16px var(--sans); letter-spacing: -.04em; }
+.home-habits h2 b { color: var(--pink); font: 650 12px var(--code); }
+.home-habits ul { display: grid; gap: 2px; margin: 12px 0 0; padding: 0; list-style: none; }
+.home-habits li { display: grid; grid-template-columns: 21px minmax(0, 1fr); align-items: center; gap: 11px; min-height: 38px; border-bottom: 1px solid #f7eaee; }
+.home-habits li:last-child { border-bottom: 0; }
+.home-habits li > button { display: grid; place-items: center; width: 20px; height: 20px; color: transparent; background: #fff; border: 1.5px solid #efd3de; border-radius: 50%; transition: background .16s, border-color .16s, color .16s; }
+.home-habits li > button:hover:not(:disabled) { border-color: var(--pink); }
+.home-habits li.is-done > button { color: #fff; background: #ef5b83; border-color: #ef5b83; }
+.home-habits li > a { display: flex; align-items: center; gap: 9px; min-width: 0; color: inherit; }
+.home-habit-icon { display: grid; place-items: center; flex: none; width: 24px; height: 24px; color: var(--pink); background: var(--pink-soft); border-radius: 8px; }
+.home-habits li b { overflow: hidden; color: #40333a; font-size: 12.5px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.home-habits li.is-done b { color: #a4949b; text-decoration: line-through; }
+.home-habits li em { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: #d8517c; font: 650 10px var(--code); font-style: normal; }
+.home-habits-empty { margin: 13px 0 2px; color: #978890; font-size: 12px; }
+.home-habits-empty a { color: var(--pink); font-weight: 650; }
+.dark-mode .home-habits { background: var(--panel); border-color: var(--line); }
+.dark-mode .home-habits h2, .dark-mode .home-habits li b { color: var(--ink); }

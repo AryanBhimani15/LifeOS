@@ -49,7 +49,7 @@ export function MilestoneList({
    * The tick flips immediately and reverts if the server refuses.
    *
    * Waiting for the round trip made the most-used control on the page feel
-   * broken for the better part of a second. Same approach as HabitGrid: the
+   * broken for the better part of a second. Same approach as the habit tick: the
    * optimistic value is dropped once the refreshed props arrive, so the server
    * remains the thing that decides.
    */
