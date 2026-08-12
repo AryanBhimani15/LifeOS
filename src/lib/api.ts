@@ -36,6 +36,23 @@ export function json(data: unknown, init?: ResponseInit) {
   return Response.json(data, init);
 }
 
+/**
+ * A single route parameter as a string.
+ *
+ * Next types params as `string | string[]`, and a catch-all segment really can
+ * arrive as an array. Rejecting that here means every repository below is
+ * entitled to assume it received an id.
+ */
+export function routeParam(
+  params: Record<string, string | string[]>,
+  key = "id",
+  what = "id",
+): string {
+  const value = params[key];
+  if (typeof value !== "string") throw badRequest(`Invalid ${what}`);
+  return value;
+}
+
 interface RouteContext {
   params: Promise<Record<string, string | string[]>>;
 }

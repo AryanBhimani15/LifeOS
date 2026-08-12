@@ -3,17 +3,19 @@ import { db } from "@/lib/db";
 import { getTodayData } from "@/lib/repositories/dashboard";
 import { getProfile } from "@/lib/repositories/fitness";
 import { listUpcomingEvents } from "@/lib/repositories/events";
-import { endOfDayInZone, hourInZone, startOfDayInZone } from "@/lib/dates";
+import { headlineGoals } from "@/lib/repositories/goals";
+import { endOfDayInZone, hourInZone, startOfDayInZone, todayInZone } from "@/lib/dates";
 import { greetingForHour } from "@/lib/fitness";
 import { HomeUpcomingAgenda } from "@/components/home/HomeUpcomingAgenda";
 import { HomeNotesWorkspace } from "@/components/home/HomeNotesWorkspace";
 import { TodayTodoList } from "@/components/home/TodayTodoList";
+import { HomeGoals } from "@/components/home/HomeGoals";
 
 export const metadata = { title: "LifeOS — Home" };
 
 export default async function TodayPage() {
   const userId = await requireUserId();
-  const [data, profile, upcoming, notes] = await Promise.all([
+  const [data, profile, upcoming, notes, goals] = await Promise.all([
     getTodayData(userId),
     getProfile(userId),
     listUpcomingEvents(userId, 12),
@@ -23,6 +25,7 @@ export default async function TodayPage() {
       orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
       take: 6,
     }),
+    headlineGoals(userId, 3),
   ]);
   const todayTasks = await db.task.findMany({
     where: {
@@ -49,6 +52,11 @@ export default async function TodayPage() {
         <TodayTodoList initialTasks={todayTasks.map((task) => ({ ...task, done: task.status === "DONE" }))} />
 
         <HomeUpcomingAgenda events={upcoming.map((event) => ({ ...event, startAt: event.startAt.toISOString(), endAt: event.endAt.toISOString() }))} />
+
+        <HomeGoals
+          today={todayInZone(data.zone)}
+          goals={goals.map((goal) => ({ ...goal, targetDate: goal.targetDate?.toISOString() ?? null }))}
+        />
       </section>
 
       <HomeNotesWorkspace

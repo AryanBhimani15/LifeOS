@@ -179,6 +179,24 @@ enum GoalStatus {
   ABANDONED
 }
 
+/// Where a goal's percentage comes from — chosen once, per goal.
+///
+/// Deliberately NOT a blend of all four. A weighted score of milestones, linked
+/// tasks and a numeric target is impossible to explain to the person looking at
+/// it, and it moves *down* when you add a task, which is the opposite of what a
+/// progress bar is for. One source per goal means the number is always
+/// defensible: "8 of 12 books", or "3 of 5 milestones", and nothing else.
+enum GoalProgressMode {
+  /// The user sets the percentage by hand.
+  MANUAL
+  /// currentMilli / targetMilli — "₹45,000 of ₹100,000".
+  NUMERIC
+  /// Completed milestones / total milestones.
+  MILESTONES
+  /// Linked tasks that are DONE / linked tasks.
+  TASKS
+}
+
 enum HabitCadence {
   DAILY
   SPECIFIC_DAYS
@@ -338,6 +356,9 @@ model Task {
   id          String     @id @default(cuid())
   userId      String
   projectId   String?
+  /// Attaches an ordinary task to a goal. Optional in both directions: a task
+  /// does not become a different kind of thing by serving a goal.
+  goalId      String?
   parentId    String? // subtask nesting
   title       String
   description String?    @db.Text
@@ -372,6 +393,7 @@ model Task {
 
   user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal       Goal?           @relation(fields: [goalId], references: [id], onDelete: SetNull)
   parent     Task?           @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks   Task[]          @relation("Subtasks")
   recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
@@ -388,6 +410,7 @@ model Task {
   @@index([userId, projectId])
   @@index([userId, dueAt])
   @@index([parentId])
+  @@index([goalId])
   @@map("tasks")
 }
 
@@ -652,6 +675,8 @@ model RecurrenceException {
 model Habit {
   id            String       @id @default(cuid())
   userId        String
+  /// The goal this habit feeds, if any. A habit is still a habit without one.
+  goalId        String?
   name          String
   description   String?
   cadence       HabitCadence @default(DAILY)
@@ -663,9 +688,11 @@ model Habit {
   updatedAt     DateTime     @updatedAt
 
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal        Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
   completions HabitCompletion[]
 
   @@index([userId])
+  @@index([goalId])
   @@map("habits")
 }
 
@@ -697,9 +724,33 @@ model Goal {
   description String?    @db.Text
   status      GoalStatus @default(ACTIVE)
   targetDate  DateTime?
+  startDate   DateTime?
   achievedAt  DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+
+  /// Where the percentage comes from. See the enum: exactly one source, never a
+  /// blend.
+  progressMode GoalProgressMode @default(MANUAL)
+
+  /// The percentage, for MANUAL goals only. Every other mode derives it and
+  /// leaves this at 0, so there is no stale second number to disagree with the
+  /// computed one.
+  manualPercent Int @default(0)
+
+  /// Target and current amount for NUMERIC goals, as integer thousandths.
+  ///
+  /// Same reasoning as ADR-005 (money in minor units): "3.5 of 5 km" and
+  /// "8 of 12 books" both need fractions, and binary floats cannot hold 0.1,
+  /// so repeated additions drift. Thousandths represent every unit this feature
+  /// offers exactly — 3.5 km is 3500, ₹100,000 is 100000000 — and the
+  /// conversion happens once, at the repository edge.
+  targetMilli  BigInt?
+  currentMilli BigInt  @default(0)
+  /// Display unit for a NUMERIC goal: "km", "books", "₹". Never parsed.
+  unit         String?
+
+  /// A short name from the icon set in src/lib/goals.ts, not arbitrary markup.
+  icon     String?
+  category String?
 
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   project    Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -708,6 +759,13 @@ model Goal {
   journal    JournalEntry[]
   noteLinks  NoteLink[]
   tags       GoalTag[]
+  /// Existing tasks attached to this goal. Reuses the Tasks feature rather than
+  /// creating a second one — completing the task IS completing the goal's work.
+  tasks      Task[]
+  habits     Habit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, status])
   @@map("goals")
