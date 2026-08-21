@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // `mobile` is a separate Expo app with its own tsconfig, dependencies and
+  // tests. Left in, the web build type-checks it against the web app's
+  // node_modules and fails on `react-native` — but only on a clean checkout,
+  // because a machine that has run `npm install` inside mobile/ resolves them
+  // and the build passes. That is a failure that only ever appears on the host.
+  "exclude": ["node_modules", "mobile"]
 }
