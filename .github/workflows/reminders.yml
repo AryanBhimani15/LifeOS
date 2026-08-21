@@ -1,0 +1,51 @@
+# The reminder scheduler.
+#
+# Reminders are useless at daily resolution — "remind me at 3pm" has to be
+# delivered near 3pm — but Vercel's Hobby plan caps cron jobs at once per day,
+# which is why vercel.json asks for 03:00 and this asks for every five minutes.
+#
+# Both are safe to run together. `processDueReminders` re-checks each reminder's
+# status inside its transaction and treats the unique-notification collision as
+# "another worker won this one", so an overlap delivers once, not twice. The
+# Vercel job is the backstop: if this workflow is ever disabled — GitHub
+# suspends schedules on repositories with no activity for 60 days — reminders
+# still drain daily instead of silently never.
+name: Process reminders
+
+on:
+  schedule:
+    # GitHub runs these on a best-effort basis and can be minutes late under
+    # load. That is acceptable here and it is why the endpoint is idempotent.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # so it can be triggered by hand while debugging
+
+# Overlapping runs would be harmless but pointless.
+concurrency:
+  group: reminders
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the scheduler endpoint
+        env:
+          LIFEOS_URL: ${{ vars.LIFEOS_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${LIFEOS_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "LIFEOS_URL (variable) and CRON_SECRET (secret) must both be set." >&2
+            exit 1
+          fi
+
+          # --fail-with-body so a 401 or 503 fails the run *and* still prints
+          # what the server said. The secret is passed as a header, never in the
+          # URL, so it cannot leak into logs or an access log.
+          curl --silent --show-error --fail-with-body \
+            --max-time 60 \
+            --retry 2 --retry-delay 5 --retry-connrefused \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${LIFEOS_URL%/}/api/internal/reminders/process"

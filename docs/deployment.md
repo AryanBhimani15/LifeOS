@@ -103,8 +103,22 @@ The app persists reminders and creates **in-app** notification records through
 unless `Authorization: Bearer $CRON_SECRET` (or `X-Cron-Secret`) matches the
 server-only secret.
 
-- **Vercel:** `vercel.json` runs this route every five minutes. Set
-  `CRON_SECRET` in the Vercel project; Vercel Cron sends it as the bearer token.
+- **Vercel:** `vercel.json` runs this route once a day, at 03:00. That is not a
+  schedule for reminders — it is the most the Hobby plan allows, which caps cron
+  jobs at once per day. On Pro, change it to `*/5 * * * *` and you can drop the
+  workflow below. Set `CRON_SECRET` in the project; Vercel Cron sends it as the
+  bearer token.
+- **GitHub Actions:** `.github/workflows/reminders.yml` calls the same route
+  every five minutes, which is what actually makes reminders punctual. It needs
+  a repository **variable** `LIFEOS_URL` (the deployment origin) and a
+  repository **secret** `CRON_SECRET` (the same value as in Vercel).
+
+  Running both is deliberate and safe. `processDueReminders` re-checks each
+  reminder inside its transaction and treats the unique-notification collision
+  as "another worker won", so an overlap delivers once. The daily Vercel job is
+  the backstop for the workflow being disabled — GitHub suspends schedules on
+  repositories with no activity for 60 days — so the failure mode is "late",
+  not "never".
 - **Container hosts:** configure the platform scheduler to make the same
   authenticated request every five minutes. Do not put the secret in a browser
   client, a public URL, or source control.
