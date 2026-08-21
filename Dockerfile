@@ -16,7 +16,12 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 # Only the manifests, so this layer is cached until dependencies actually change.
 COPY package.json package-lock.json ./
-RUN npm ci
+# `--ignore-scripts` skips the `postinstall` that generates the Prisma client.
+# That script exists so a fresh clone — and a host like Vercel that only runs
+# `npm install && next build` — ends up with a client at all. Here it would fail:
+# the schema it reads has not been copied yet. The build stage below generates it
+# explicitly, which is also what keeps this layer cached across schema edits.
+RUN npm ci --ignore-scripts
 
 FROM node:22-alpine AS build
 WORKDIR /app
