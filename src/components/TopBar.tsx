@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Command, LogOut, Moon, Search, Sun } from "lucide-react";
+import { Command, LogOut, Moon, Search, Sun } from "lucide-react";
 import { signOutAction } from "@/app/(app)/actions";
-import { useTheme } from "@/lib/theme";
+import { NotificationBell } from "@/components/NotificationBell";
+import { setTheme, useTheme } from "@/lib/theme";
 
 /**
  * The utility bar: theme and sign out, in one place, at the top of every page.
@@ -18,7 +19,7 @@ import { useTheme } from "@/lib/theme";
  * and a sign-out button with the word on it.
  */
 export function TopBar() {
-  const { isDark, toggle } = useTheme();
+  const { isDark } = useTheme();
 
   function openCommand() {
     window.dispatchEvent(
@@ -44,7 +45,7 @@ export function TopBar() {
         <button
           type="button"
           className={!isDark ? "is-active" : ""}
-          onClick={() => isDark && toggle()}
+          onClick={() => setTheme(false)}
           aria-pressed={!isDark}
           title="Light mode"
         >
@@ -54,7 +55,7 @@ export function TopBar() {
         <button
           type="button"
           className={isDark ? "is-active" : ""}
-          onClick={() => !isDark && toggle()}
+          onClick={() => setTheme(true)}
           aria-pressed={isDark}
           title="Dark mode"
         >
@@ -62,10 +63,7 @@ export function TopBar() {
           <span>Dark</span>
         </button>
       </div>
-      <button type="button" className="topbar-icon" aria-label="Notifications" title="Notifications">
-        <Bell size={18} strokeWidth={1.9} />
-        <span className="topbar-notification-dot" />
-      </button>
+      <NotificationBell />
       <Link href="/profile" className="topbar-profile" aria-label="Open profile" title="Profile">A</Link>
       <form action={signOutAction}>
         <button type="submit" className="topbar-signout" title="Sign out" aria-label="Sign out">

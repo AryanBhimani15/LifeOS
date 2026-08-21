@@ -56,6 +56,8 @@ export function ActivitySelector({
     width: number;
     maxHeight: number;
     above: boolean;
+    /** See the note where it is applied. */
+    palette: string | null;
   } | null>(null);
 
   const selected = activities.find((a) => a.id === value) ?? activities[0];
@@ -94,6 +96,7 @@ export function ActivitySelector({
       width: rect.width,
       maxHeight,
       above: flip,
+      palette: trigger.current?.closest("[data-palette]")?.getAttribute("data-palette") ?? null,
     });
   }, []);
 
@@ -163,6 +166,11 @@ export function ActivitySelector({
     <div
       ref={panel}
       className={`fit-select-panel ${placement.above ? "is-above" : ""}`}
+      // Being a sibling of the app shell costs the menu the palette, which is
+      // an attribute on that shell and which the tint tokens hang off. Carried
+      // across with the coordinates — the same measurement, the same reason —
+      // so the menu cannot open in rose over a blue page.
+      data-palette={placement.palette ?? undefined}
       style={{
         top: placement.top,
         left: placement.left,

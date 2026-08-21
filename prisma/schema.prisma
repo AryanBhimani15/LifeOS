@@ -62,6 +62,7 @@ model User {
   documents         Document[]
   tags              Tag[]
   reminders         Reminder[]
+  notifications     Notification[]
   auditLogs         AuditLog[]
   commandPlans      AiCommandPlan[]
   recurrences       RecurrenceRule[]
@@ -121,13 +122,16 @@ model UserSettings {
   userId String @unique
 
   theme         String  @default("system") // system | light | dark
-  /// Which tint the product wears: rose | forest.
+  /// Which tint the product wears: rose | blue | forest.
   ///
-  /// A stored preference, because it used to be inferred from the user's sex —
-  /// `palette={profile.sex === "FEMALE" ? "rose" : "forest"}`. That made the
+  /// A stored preference. It used to be inferred on every render —
+  /// `palette={profile.sex === "FEMALE" ? "rose" : "forest"}` — which made the
   /// colour of the app a thing you could only change by editing a field that
-  /// also feeds the BMR calculation, which is both a strange coupling and a
-  /// worse assumption. It is a choice now.
+  /// also feeds the BMR calculation.
+  ///
+  /// Setup now seeds this column from the same answer and then leaves it alone,
+  /// so the first impression still fits without the colour being welded to a
+  /// health input. See `completeOnboarding`.
   palette       String  @default("rose")
   timezone      String  @default("UTC") // IANA zone; drives recurrence expansion
   weekStartsOn  Int     @default(1) // 0 = Sunday
@@ -254,6 +258,15 @@ enum PlanStatus {
   EXECUTED
   REJECTED
   EXPIRED
+}
+
+/// The server-side delivery lifecycle for a reminder. A reminder is the
+/// instruction; a Notification is the resulting in-app message/history row.
+enum ReminderStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
 }
 
 /// What an event actually is, so the UI can say "Exam · 10:00–11:30" instead of
@@ -399,7 +412,8 @@ model Task {
   /// hour grid and all-day items in the header band.
   ///
   /// A deadline is still not an event: an exam that *happens* from 10:00–11:30
-  /// belongs in `Event` (which already carries `taskId`), not in `dueAt`.
+  /// belongs in `Event` (and can be related through EventPreparationTask), not
+  /// in `dueAt`.
   dueHasTime  Boolean    @default(false)
   startAt     DateTime?
   completedAt DateTime?
@@ -424,7 +438,7 @@ model Task {
   recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
   series     Task?           @relation("Series", fields: [seriesId], references: [id], onDelete: SetNull)
   instances  Task[]          @relation("Series")
-  events     Event[]
+  eventPreparationLinks EventPreparationTask[]
   reminders  Reminder[]
   noteLinks  NoteLink[]
   tags       TaskTag[]
@@ -450,17 +464,54 @@ model Reminder {
   taskId    String?
   eventId   String?
   remindAt  DateTime
+  /// For event-relative reminders. When the event moves, this offset is used
+  /// to recompute the absolute delivery instant in the server transaction.
+  relativeMinutesBefore Int?
+  status    ReminderStatus @default(PENDING)
+  /// A new reminder time re-arms the same reminder row with a new version.
+  /// The version is part of Notification's unique key, preventing duplicates
+  /// while still allowing a legitimately re-scheduled reminder to notify again.
+  deliveryVersion Int @default(0)
+  attemptCount Int @default(0)
+  retryAt     DateTime?
+  lastError   String? @db.Text
   sentAt    DateTime?
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   task  Task?  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  notifications Notification[]
 
   @@index([userId, remindAt])
+  @@index([status, remindAt])
+  @@index([status, retryAt])
   @@index([taskId])
   @@index([eventId])
   @@map("reminders")
+}
+
+/// An immutable in-app message produced by one successful reminder delivery.
+/// This is intentionally separate from Reminder: changing the source's next
+/// reminder does not rewrite the fact that LifeOS alerted the person earlier.
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  reminderId      String?
+  deliveryVersion Int
+  title           String
+  body            String
+  href            String
+  readAt          DateTime?
+  createdAt       DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminder Reminder? @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+
+  @@unique([reminderId, deliveryVersion])
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
 }
 
 // ---------------------------------------------------------------------------
@@ -471,7 +522,6 @@ model Event {
   id          String    @id @default(cuid())
   userId      String
   projectId   String?
-  taskId      String?
   title       String
   description String?   @db.Text
   location    String?
@@ -491,17 +541,33 @@ model Event {
 
   user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  task       Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
   recurrence RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onDelete: SetNull)
   series     Event?          @relation("EventSeries", fields: [seriesId], references: [id], onDelete: SetNull)
   instances  Event[]         @relation("EventSeries")
   documents  Document[]
   tags       EventTag[]
   reminders  Reminder[]
+  notes      Note[]
+  preparationTasks EventPreparationTask[]
 
   @@unique([seriesId, occurrenceOn])
   @@index([userId, startAt])
   @@map("events")
+}
+
+/// Explicit event-to-task context. A preparation task remains an ordinary Task:
+/// removing this link (or the event) never deletes it or changes its schedule.
+model EventPreparationTask {
+  eventId   String
+  taskId    String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, taskId])
+  @@index([taskId])
+  @@map("event_preparation_tasks")
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +592,8 @@ model Note {
   userId    String
   projectId String?
   folderId  String?
+  /// Optional contextual event/exam. A note stays valid when the event goes.
+  eventId   String?
   title     String
   content   String   @db.Text // markdown
   pinned    Boolean  @default(false)
@@ -535,11 +603,13 @@ model Note {
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   project Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
   folder  NoteFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  event   Event?      @relation(fields: [eventId], references: [id], onDelete: SetNull)
   links   NoteLink[]
   tags    NoteTag[]
 
   @@index([userId, updatedAt])
   @@index([userId, folderId])
+  @@index([userId, eventId])
   @@map("notes")
 }
 

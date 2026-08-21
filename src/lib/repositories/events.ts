@@ -1,16 +1,18 @@
 import { db } from "@/lib/db";
 import { badRequest, notFound } from "@/lib/errors";
 import { storage } from "@/lib/storage";
+import { recomputeRelativeEventReminders } from "@/lib/repositories/reminders";
 import type { EventKind } from "@/generated/prisma/enums";
+import type { Prisma } from "@/generated/prisma/client";
 
 /**
  * Events, and everything that hangs off one.
  *
  * An event is the richer sibling of a task: it *happens* between two times
  * rather than being *due* at one. The distinction already existed in the schema
- * (`Event.startAt`/`endAt` versus `Task.dueAt`), and `Event.taskId` already let
- * a task point at one — so this file adds no new modelling, only the reads and
- * writes the detail page needs.
+ * (`Event.startAt`/`endAt` versus `Task.dueAt`). Preparation work is connected
+ * through an explicit junction so it remains a normal task and is never copied
+ * or deleted just because its event changes.
  *
  * Every relationship is optional, in both directions. An event with no notes,
  * no preparation tasks and no attachments is a perfectly ordinary event, and
@@ -28,26 +30,24 @@ const EVENT_DETAIL = {
   allDay: true,
   createdAt: true,
   project: { select: { id: true, name: true, color: true } },
-  /** Preparation tasks — tasks pointing at this event through Event.taskId. */
-  task: {
+  preparationTasks: {
     select: {
-      id: true,
-      title: true,
-      status: true,
-      dueAt: true,
-      dueHasTime: true,
-      subtasks: {
-        select: { id: true, title: true, status: true },
-        orderBy: { boardOrder: "asc" },
-      },
+      task: { select: { id: true, title: true, status: true, dueAt: true, dueHasTime: true, createdAt: true } },
     },
+    orderBy: { createdAt: "asc" },
+  },
+  notes: {
+    select: { id: true, title: true, content: true, pinned: true, updatedAt: true },
+    orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+    take: 8,
   },
   documents: {
     select: { id: true, name: true, mimeType: true, sizeBytes: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   },
   tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
-} as const;
+  reminders: { select: { id: true, remindAt: true, relativeMinutesBefore: true }, orderBy: { remindAt: "asc" }, take: 1 },
+} satisfies Prisma.EventSelect;
 
 export type EventDetail = NonNullable<Awaited<ReturnType<typeof getEvent>>>;
 
@@ -58,22 +58,7 @@ export async function getEvent(userId: string, id: string) {
   });
   if (!event) throw notFound("Event");
 
-  // Preparation tasks are tasks whose own `events` relation includes this one.
-  // Queried separately rather than through a back-relation so a task can be
-  // linked without being *owned* by the event.
-  const prepTasks = await db.task.findMany({
-    where: { userId, events: { some: { id } } },
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      dueAt: true,
-      dueHasTime: true,
-    },
-    orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-  });
-
-  return { ...event, prepTasks };
+  return { ...event, prepTasks: event.preparationTasks.map(({ task }) => task) };
 }
 
 const UPCOMING_SELECT = {
@@ -92,6 +77,34 @@ export function listUpcomingEvents(userId: string, limit = 3) {
     where: { userId, isTemplate: false, startAt: { gte: new Date() } },
     select: UPCOMING_SELECT,
     orderBy: { startAt: "asc" },
+    take: limit,
+  });
+}
+
+/** A bounded option list for relationship pickers, not a global event search. */
+export function listEventRelationshipChoices(userId: string, limit = 40) {
+  return db.event.findMany({
+    where: { userId, isTemplate: false },
+    select: { id: true, title: true, kind: true, startAt: true, allDay: true },
+    orderBy: [{ startAt: "desc" }, { id: "desc" }],
+    take: limit,
+  });
+}
+
+export function listTaskRelationshipChoices(userId: string, limit = 40) {
+  return db.task.findMany({
+    where: { userId, isTemplate: false, status: { not: "CANCELLED" } },
+    select: { id: true, title: true, status: true, dueAt: true, dueHasTime: true },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: limit,
+  });
+}
+
+export function listUnrelatedNoteChoices(userId: string, limit = 40) {
+  return db.note.findMany({
+    where: { userId, eventId: null },
+    select: { id: true, title: true, content: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
     take: limit,
   });
 }
@@ -176,17 +189,23 @@ export async function updateEvent(
   const existing = await db.event.findFirst({ where: { id, userId }, select: { id: true } });
   if (!existing) throw notFound("Event");
 
-  return db.event.update({
-    where: { id },
-    data: {
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
-      ...(patch.startAt !== undefined ? { startAt: patch.startAt } : {}),
-      ...(patch.endAt !== undefined ? { endAt: patch.endAt } : {}),
-      ...(patch.location !== undefined ? { location: patch.location } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
-    },
-    select: { id: true, title: true },
+  return db.$transaction(async (tx) => {
+    const event = await tx.event.update({
+      where: { id },
+      data: {
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+        ...(patch.startAt !== undefined ? { startAt: patch.startAt } : {}),
+        ...(patch.endAt !== undefined ? { endAt: patch.endAt } : {}),
+        ...(patch.location !== undefined ? { location: patch.location } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+      },
+      select: { id: true, title: true, startAt: true },
+    });
+    if (patch.startAt !== undefined) {
+      await recomputeRelativeEventReminders(tx, id, event.startAt);
+    }
+    return { id: event.id, title: event.title };
   });
 }
 
@@ -213,7 +232,8 @@ export async function deleteEvent(userId: string, id: string): Promise<void> {
   );
 }
 
-/** Links an existing task to an event as preparation, or unlinks it. */
+/** Links an existing normal task to an event as preparation. Both rows must be
+ * owned by the same caller; the junction only carries context, never task data. */
 export async function linkTaskToEvent(userId: string, eventId: string, taskId: string) {
   const [event, task] = await Promise.all([
     db.event.findFirst({ where: { id: eventId, userId }, select: { id: true } }),
@@ -221,8 +241,46 @@ export async function linkTaskToEvent(userId: string, eventId: string, taskId: s
   ]);
   if (!event || !task) throw notFound("Event");
 
-  await db.event.update({ where: { id: eventId }, data: { taskId } });
+  await db.eventPreparationTask.upsert({
+    where: { eventId_taskId: { eventId, taskId } },
+    create: { eventId, taskId },
+    update: {},
+  });
 }
+
+export async function unlinkTaskFromEvent(userId: string, eventId: string, taskId: string) {
+  const link = await db.eventPreparationTask.findFirst({
+    where: { eventId, taskId, event: { userId }, task: { userId } },
+    select: { eventId: true, taskId: true },
+  });
+  if (!link) throw notFound("Preparation task");
+  await db.eventPreparationTask.delete({ where: { eventId_taskId: link } });
+}
+
+/** Creates one ordinary saved note, already related to this event. */
+export async function createEventNote(userId: string, eventId: string, content: string) {
+  const event = await db.event.findFirst({ where: { id: eventId, userId }, select: { id: true } });
+  if (!event) throw notFound("Event");
+  const body = content.trim();
+  if (!body) throw badRequest("Write a note first.");
+  return db.note.create({
+    data: { userId, eventId, title: body.split(/[.\n]/)[0]!.slice(0, 200), content: body },
+    select: { id: true, title: true, content: true, updatedAt: true },
+  });
+}
+
+/** Connect or disconnect a persisted Note without duplicating/deleting it. */
+export async function setNoteEvent(userId: string, noteId: string, eventId: string | null) {
+  const note = await db.note.findFirst({ where: { id: noteId, userId }, select: { id: true } });
+  if (!note) throw notFound("Note");
+  if (eventId) {
+    const event = await db.event.findFirst({ where: { id: eventId, userId }, select: { id: true } });
+    if (!event) throw notFound("Event");
+  }
+  return db.note.update({ where: { id: note.id }, data: { eventId }, select: { id: true, eventId: true } });
+}
+
+export { setEventReminder } from "@/lib/repositories/reminders";
 
 // ---------------------------------------------------------------------------
 // Attachments

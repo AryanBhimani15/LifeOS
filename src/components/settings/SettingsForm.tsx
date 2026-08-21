@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import { updateSettingsAction } from "@/app/(app)/settings/actions";
 import { useToast } from "@/components/ToastProvider";
+import { NotificationStatus } from "@/components/settings/NotificationStatus";
 
 /**
  * Settings.
@@ -34,6 +35,7 @@ const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD", "JPY
 
 const PALETTES = [
   { value: "rose", label: "Blush", hint: "Pink, like the Home screen." },
+  { value: "blue", label: "Azure", hint: "The same design, rotated to blue." },
   { value: "forest", label: "Forest", hint: "Deep green, warmer paper." },
 ];
 
@@ -234,6 +236,8 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
           </span>
         </label>
       </section>
+
+      <NotificationStatus />
 
       {error && (
         <p className="goal-form-error" role="alert">

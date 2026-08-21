@@ -1,4 +1,51 @@
-# Mobile companion
+# Mobile clients
+
+LifeOS currently has two deliberately separate iPhone experiments:
+
+- [`ios/`](../ios/) is the active, lightweight **native SwiftUI companion**.
+  It has Today, Tasks, Calendar, sign-in, connected task/event detail and
+  authenticated attachment downloads.
+- [`mobile/`](../mobile/) is the older Expo voice-first capture prototype. It
+  remains intact for reference; it is not the app to open for the current iOS
+  companion.
+
+The native app is intentionally not a narrow WebView or a phone-sized copy of
+every desktop page. It uses the same LifeOS API and canonical repositories,
+while staying focused on the small moments that work best on a phone.
+
+## Native SwiftUI companion
+
+```
+login → Today → quick task capture / complete → task or event detail
+                     ↘ Tasks list / Calendar agenda
+```
+
+It contains no server credentials, Azure keys, duplicate NLP/date rules or
+mobile-only data tables. The deterministic parser, task writer, calendar
+projection and reminder writer stay on the LifeOS backend.
+
+### Native API contract
+
+Every endpoint below accepts `Authorization: Bearer <accessToken>` after sign-in.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/mobile/today` | timezone-aware Today projection and canonical schedule load |
+| `GET` | `/api/mobile/tasks?filter=` | server-backed Open / Today / Upcoming / Completed list |
+| `POST` | `/api/mobile/tasks/preview` | deterministic capture-parser preview |
+| `POST` | `/api/mobile/tasks` | canonical task capture with optional date, importance, note and reminder |
+| `PUT` | `/api/mobile/tasks/:id/reminder` | set or clear the canonical task reminder |
+| `GET` | `/api/mobile/calendar?date=` | canonical month-grid calendar projection |
+| `GET` | `/api/tasks/:id/detail` | task detail, event link, reminder and documents |
+| `PATCH` | `/api/tasks/:id` | task title, note, date/time, importance and completion |
+| `GET` | `/api/events/:id` | event/exam detail, preparation tasks, notes and resources |
+| `GET` | `/api/attachments/:id/download` | authenticated private attachment download |
+
+For setup and the exact native scope, see [`ios/README.md`](../ios/README.md).
+
+---
+
+## Legacy Expo capture prototype
 
 A voice-first capture app for iPhone. It is **not** a small copy of the web app.
 
@@ -10,13 +57,14 @@ That is the entire product. There is no task list, no calendar, no dashboard —
 the web app already does those better on a bigger screen, and a miniature copy
 would be worse at both.
 
-## Where it lives
+## Where the legacy prototype lives
 
 ```
 ~/LifeOS/
 ├── src/            the Next.js web app and the API (unchanged)
 ├── prisma/         one schema, one database
 ├── mobile/         the Expo app
+├── ios/            the active native SwiftUI companion
 └── docs/
 ```
 

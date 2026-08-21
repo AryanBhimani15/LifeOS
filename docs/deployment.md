@@ -33,6 +33,7 @@ Required:
 | `DATABASE_URL` | Postgres connection string |
 | `AUTH_SECRET` | **Generate a fresh one**: `openssl rand -base64 32`. Never the development value. |
 | `AUTH_URL` | The full public origin, e.g. `https://lifeos.example.com` |
+| `CRON_SECRET` | Long random secret used only by the reminder scheduler. Generate with `openssl rand -base64 32`; never expose it to the browser. |
 
 Strongly recommended:
 
@@ -40,7 +41,7 @@ Strongly recommended:
 |---|---|
 | `SIGNUP_INVITE_CODE` | Without it, anyone with the URL can create an account in your database. Set it to anything unguessable and give it only to people you mean to invite. |
 | `TRUST_PROXY_HEADERS=true` | Only behind a proxy that overwrites `X-Forwarded-For` (Vercel, Azure Container Apps, Fly). Without it every anonymous request shares one rate-limit bucket. **Do not set it if the app is exposed directly** — the header is then attacker-controlled and per-IP limits become meaningless. |
-| `STORAGE_DRIVER=azure` | With `AZURE_STORAGE_CONNECTION_STRING` and `AZURE_STORAGE_CONTAINER`. See below. |
+| `STORAGE_DRIVER` | `vercel-blob` on Vercel, `azure` with `AZURE_STORAGE_CONNECTION_STRING` and `AZURE_STORAGE_CONTAINER` elsewhere. Not optional in production — see below. |
 
 Optional: `GEMINI_API_KEY` (AI features return a clear error without it),
 `AI_MODEL`.
@@ -52,11 +53,16 @@ filesystem is thrown away on the next deploy and every restart, so attachments
 disappear while their database rows remain, pointing at nothing.
 
 The app refuses to start in production with `STORAGE_DRIVER=local` for that
-reason. Either:
+reason. Pick one:
 
-- set `STORAGE_DRIVER=azure` with a Blob container, or
-- set `STORAGE_ALLOW_LOCAL=true` **and** mount a real persistent volume at
-  `STORAGE_LOCAL_DIR`.
+- **`STORAGE_DRIVER=vercel-blob`** — the answer on Vercel. Connect a Blob store
+  to the project and Vercel sets `BLOB_READ_WRITE_TOKEN` itself; there is nothing
+  else to configure. Blobs are written private and streamed back through the
+  authenticated download route, so a blob URL never reaches a browser.
+- **`STORAGE_DRIVER=azure`** with a Blob container, per the variables above.
+- **`STORAGE_ALLOW_LOCAL=true`** *and* a real persistent volume mounted at
+  `STORAGE_LOCAL_DIR`. Only that combination — the flag alone is how attachments
+  disappear.
 
 Verify with `node scripts/storage-check.mjs`.
 
@@ -75,8 +81,9 @@ Never `prisma migrate dev` against production: it can reset the database.
 ## 5. Build and run
 
 **Vercel** — connect the repo; it detects Next.js. Set the environment variables
-above. Note that Vercel's filesystem is ephemeral, so `STORAGE_DRIVER=azure` is
-required rather than optional.
+above. Vercel's filesystem is ephemeral, so a real storage driver is required
+rather than optional: add a Blob store to the project and set
+`STORAGE_DRIVER=vercel-blob`.
 
 **Any container host** — the repo has a `Dockerfile`:
 
@@ -89,7 +96,27 @@ It builds the standalone output, runs as a non-root user, and exposes
 `/api/health`, which returns 503 when the database is unreachable rather than a
 misleading 200.
 
-## 6. After the first deploy
+## 6. Reminder scheduler
+
+The app persists reminders and creates **in-app** notification records through
+`GET` or `POST /api/internal/reminders/process`. The route rejects every request
+unless `Authorization: Bearer $CRON_SECRET` (or `X-Cron-Secret`) matches the
+server-only secret.
+
+- **Vercel:** `vercel.json` runs this route every five minutes. Set
+  `CRON_SECRET` in the Vercel project; Vercel Cron sends it as the bearer token.
+- **Container hosts:** configure the platform scheduler to make the same
+  authenticated request every five minutes. Do not put the secret in a browser
+  client, a public URL, or source control.
+
+The worker is deliberately in `src/lib/repositories/notifications.ts`, not the
+route, so scheduler configuration can change without changing delivery logic.
+Browser push is not configured yet: there is no service worker, persisted Push
+API subscription, or VAPID credentials. A reminder can therefore become an
+in-app notification even while the browser is closed, but the browser cannot
+show an operating-system notification until that separate infrastructure exists.
+
+## 7. After the first deploy
 
 1. Open `/api/health` — expect `{"status":"ok"}`.
 2. Register the first account. If `SIGNUP_INVITE_CODE` is set, the form asks for
@@ -111,8 +138,9 @@ instance" rather than "production".
 - **No email delivery.** So: no email verification, no password reset, no way to
   change the address you sign in with. A forgotten password needs a manual
   database edit.
-- **Reminders are stored but never sent.** Nothing delivers them; there is no
-  scheduler and no push credentials.
+- **Browser push is not configured.** Reminders are processed into in-app
+  notifications by the secured scheduler; service-worker/VAPID web push remains
+  intentionally unavailable until it can be implemented and verified end to end.
 - **Recurring tasks and events are not materialised.** The schema supports
   recurrence; no job expands it.
 - **Projects and Journal are still placeholders**, and say so on screen.

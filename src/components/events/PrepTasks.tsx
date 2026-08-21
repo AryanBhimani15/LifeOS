@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Circle, Loader2, Plus } from "lucide-react";
-import { addPrepTaskAction, togglePrepTaskAction } from "@/app/(app)/events/actions";
+import Link from "next/link";
+import { Check, Circle, Link2, Loader2, Plus, X } from "lucide-react";
+import { addPrepTaskAction, linkExistingPrepTaskAction, togglePrepTaskAction, unlinkPrepTaskAction } from "@/app/(app)/events/actions";
 
 /**
  * Tasks for preparing for this event.
@@ -31,11 +32,14 @@ const STATUS_LABEL: Record<string, string> = {
   TODO: "",
 };
 
-export function PrepTasks({ eventId, tasks }: { eventId: string; tasks: PrepTask[] }) {
+export function PrepTasks({ eventId, tasks, availableTasks }: { eventId: string; tasks: PrepTask[]; availableTasks: PrepTask[] }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const choices = availableTasks.filter((task) => !tasks.some((linked) => linked.id === task.id) && task.title.toLowerCase().includes(query.toLowerCase())).slice(0, 6);
 
   const add = () => {
     const value = text.trim();
@@ -86,12 +90,13 @@ export function PrepTasks({ eventId, tasks }: { eventId: string; tasks: PrepTask
                 >
                   {done ? <Check size={12} strokeWidth={3} /> : <Circle size={14} strokeWidth={1.6} />}
                 </button>
-                <span className="prep-title">{task.title}</span>
+                <Link className="prep-title" href={`/tasks?focus=${task.id}`}>{task.title}</Link>
                 {STATUS_LABEL[task.status] && (
                   <span className={`prep-status is-${task.status.toLowerCase()}`}>
                     {STATUS_LABEL[task.status]}
                   </span>
                 )}
+                <button className="prep-unlink" type="button" aria-label={`Remove ${task.title} from preparation`} title="Remove from preparation" disabled={pending} onClick={() => startTransition(async () => { await unlinkPrepTaskAction(eventId, task.id); router.refresh(); })}><X size={13} /></button>
               </li>
             );
           })}
@@ -119,6 +124,9 @@ export function PrepTasks({ eventId, tasks }: { eventId: string; tasks: PrepTask
           maxLength={500}
           aria-label="Add a task to prepare"
         />
+        <button type="submit" disabled={!text.trim() || pending} aria-label="Add preparation task">
+          <Plus size={14} /> Add
+        </button>
         {pending && <Loader2 size={14} className="spin" />}
       </form>
 
@@ -127,6 +135,7 @@ export function PrepTasks({ eventId, tasks }: { eventId: string; tasks: PrepTask
           {error}
         </p>
       )}
+      <div className="event-link-existing"><button type="button" onClick={() => setLinkOpen((open) => !open)}><Link2 size={13} /> Link an existing task</button>{linkOpen && <div className="event-picker"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your tasks…" aria-label="Search existing tasks" autoFocus />{choices.map((task) => <button key={task.id} type="button" disabled={pending} onClick={() => startTransition(async () => { const result = await linkExistingPrepTaskAction(eventId, task.id); if (result.error) setError(result.error); else { setLinkOpen(false); setQuery(""); router.refresh(); } })}><b>{task.title}</b><span>{task.dueAt ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(task.dueAt)) : "No date"}</span></button>)}{choices.length === 0 && <p>No other tasks match.</p>}</div>}</div>
     </section>
   );
 }

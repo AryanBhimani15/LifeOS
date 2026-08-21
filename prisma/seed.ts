@@ -64,7 +64,9 @@ async function main() {
       email: DEMO_EMAIL,
       name: "Aryan",
       passwordHash: await bcrypt.hash(DEMO_PASSWORD, 12),
-      settings: { create: { timezone: TIMEZONE, currency: "INR", weekStartsOn: 1 } },
+      // Blue because the demo profile below is MALE, which is what setup would
+      // have seeded had this gone through completeOnboarding. See docs/palettes.md.
+      settings: { create: { timezone: TIMEZONE, currency: "INR", weekStartsOn: 1, palette: "blue" } },
     },
   });
   const userId = user.id;
@@ -312,10 +314,9 @@ async function main() {
       },
     });
 
-    await db.event.create({
+    const exam = await db.event.create({
       data: {
         userId,
-        taskId: prep.id,
         title: "DBMS CIA 2",
         kind: "EXAM",
         location: "Room 304, Block B",
@@ -325,6 +326,7 @@ async function main() {
         endAt: new Date(examStart.getTime() + 1.5 * 3_600_000),
       },
     });
+    await db.eventPreparationTask.create({ data: { eventId: exam.id, taskId: prep.id } });
   }
 
   // ---- Habits with real completion history --------------------------------

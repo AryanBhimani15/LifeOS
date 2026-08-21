@@ -123,8 +123,10 @@ describe("validation", () => {
 
 describe("the palette is a choice, not a guess", () => {
   /**
-   * It used to be derived from the user's sex. This is the test that stops that
-   * coming back: two accounts differing only in sex must look identical.
+   * It used to be *derived* from the user's sex on every render. Setup now
+   * seeds the stored value from that answer, which is a different thing: this
+   * is the test that stops the derivation coming back, so two accounts with the
+   * same stored palette must look identical whatever their profiles say.
    */
   it("does not depend on the fitness profile", async () => {
     const male = await makeUser();
@@ -137,6 +139,13 @@ describe("the palette is a choice, not a guess", () => {
     });
 
     expect(await getPalette(male.id)).toBe(await getPalette(female.id));
+  });
+
+  it("ignores a palette the app no longer has", async () => {
+    const user = await makeUser();
+    await db.userSettings.update({ where: { userId: user.id }, data: { palette: "neon" } });
+
+    expect(await getPalette(user.id)).toBe("rose");
   });
 
   it("returns what was chosen, and a sane default otherwise", async () => {

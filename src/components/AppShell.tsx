@@ -17,6 +17,7 @@ import {
   Target,
   Wallet,
 } from "lucide-react";
+import type { Palette } from "@/lib/validation/settings";
 import { CommandBar } from "./CommandBar";
 import { ToastProvider } from "./ToastProvider";
 import { TopBar } from "./TopBar";
@@ -45,11 +46,11 @@ const NAV = [
 
 export function AppShell({
   children,
-  palette = "forest",
+  palette = "rose",
 }: {
   children: React.ReactNode;
-  /** Tints the whole product, chosen during setup. See globals.css. */
-  palette?: "forest" | "rose";
+  /** Tints the whole product. Seeded by setup, changed in Settings. */
+  palette?: Palette;
 }) {
   const pathname = usePathname();
 

@@ -21,13 +21,13 @@ const time = z
 /**
  * Creating a calendar event.
  *
- * Only events. A task belongs to the Tasks feature and a habit to Habits, and
- * offering to create either from here would be a second front door to a system
- * that already has one — with its own subtly different rules.
+ * Calendar may create an Event or an Exam. Tasks and habits retain their own
+ * front doors so this never becomes a second, inconsistent task system.
  */
 export const createCalendarEventSchema = z
   .object({
     title: title(200),
+    kind: z.enum(["EVENT", "EXAM"]).default("EVENT"),
     date: isoDate,
     startTime: time.optional(),
     endTime: time.optional(),

@@ -15,7 +15,8 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "db:migrate:test": "dotenv -e .env -- sh -c \"DATABASE_URL=$DATABASE_URL_TEST prisma migrate deploy\"",
+    "db:migrate:test": "node -r dotenv/config scripts/migrate-test.mjs",
+    "palette": "node scripts/generate-palette.mjs",
     "test:e2e": "node scripts/smoke-e2e.mjs",
     "test:contract": "node scripts/mobile-contract-test.mjs"
   },
@@ -40,6 +41,7 @@
     "@radix-ui/react-switch": "^1.3.7",
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

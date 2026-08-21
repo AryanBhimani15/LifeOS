@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { generatePlan, spreadAcrossWeek, starterGoals, starterHabits } from "@/lib/workout-plan";
 import { completeOnboarding, getActivePlan, logPlannedSession } from "@/lib/repositories/onboarding";
 import { fitnessProfileSchema } from "@/lib/validation/fitness";
+import { getPalette, updateSettings } from "@/lib/repositories/settings";
 import { endOfDayInZone, startOfDayInZone } from "@/lib/dates";
 import { ACTIVITY_CATALOGUE } from "../prisma/activities";
 import { makeTwoUsers, makeUser, resetDatabase } from "./helpers/factories";
@@ -187,6 +188,56 @@ describe("finishing setup", () => {
     expect(goals).toBe(2);
     expect(habits).toBe(2);
     expect(milestones).toBeGreaterThan(0);
+  });
+
+  /**
+   * The palette is seeded here and nowhere else.
+   *
+   * This is the compromise that replaced deriving it on every render: the first
+   * impression still fits the answer, but the value lands in a column that
+   * Settings owns from then on. The tests that matter are therefore about *when*
+   * it is written, not what colour comes out.
+   */
+  describe("the palette it starts you on", () => {
+    it("starts a female account on rose and everyone else on blue", async () => {
+      const { alice, bob } = await makeTwoUsers();
+
+      await completeOnboarding(alice.id, profileInput({ sex: "FEMALE" }));
+      await completeOnboarding(bob.id, profileInput({ sex: "MALE" }));
+
+      expect(await getPalette(alice.id)).toBe("rose");
+      expect(await getPalette(bob.id)).toBe("blue");
+    });
+
+    it("never overrules a palette that was chosen in Settings", async () => {
+      const user = await makeUser();
+      await completeOnboarding(user.id, profileInput({ sex: "MALE" }));
+      await updateSettings(user.id, { palette: "forest" });
+
+      // Re-running setup, and answering differently while you are in there.
+      await completeOnboarding(user.id, profileInput({ sex: "FEMALE" }));
+
+      expect(await getPalette(user.id)).toBe("forest");
+    });
+
+    it("does not repaint an account that re-runs setup without changing anything", async () => {
+      const user = await makeUser();
+      await completeOnboarding(user.id, profileInput({ sex: "FEMALE" }));
+      await completeOnboarding(user.id, profileInput({ sex: "MALE" }));
+
+      expect(await getPalette(user.id)).toBe("rose");
+    });
+
+    it("leaves an abandoned setup free to seed on the real finish", async () => {
+      const user = await makeUser();
+      // Someone who opened setup, answered, and closed the tab: a profile row
+      // exists but was never completed, so this is still a first finish.
+      await db.fitnessProfile.create({ data: { userId: user.id, firstName: "Aryan", age: 24, sex: "MALE", heightMm: 1780, weightGrams: 72_000, activityLevel: "MODERATELY_ACTIVE" } });
+
+      await completeOnboarding(user.id, profileInput({ sex: "FEMALE" }));
+
+      expect(await getPalette(user.id)).toBe("rose");
+    });
   });
 
   it("does not bolt on more goals when setup is run again", async () => {

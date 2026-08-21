@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
-import type { UpdateSettingsInput } from "@/lib/validation/settings";
+import {
+  palette as paletteSchema,
+  type Palette,
+  type UpdateSettingsInput,
+} from "@/lib/validation/settings";
 
 /**
  * User settings.
@@ -98,11 +102,20 @@ export async function updateSettings(userId: string, patch: UpdateSettingsInput)
   return getSettings(userId);
 }
 
-/** The palette the shell should render, resolved once on the server. */
-export async function getPalette(userId: string): Promise<"rose" | "forest"> {
+/**
+ * The palette the shell should render, resolved once on the server.
+ *
+ * A plain read of the stored choice. Setup seeds that choice — see
+ * `completeOnboarding` — but nothing derives it at render time, so changing it
+ * in Settings is the last word.
+ */
+export async function getPalette(userId: string): Promise<Palette> {
   const settings = await db.userSettings.findUnique({
     where: { userId },
     select: { palette: true },
   });
-  return settings?.palette === "forest" ? "forest" : "rose";
+  // The column is a plain string, so it can hold a palette that has since been
+  // removed, or nothing at all on an account that predates the setting.
+  const stored = paletteSchema.safeParse(settings?.palette);
+  return stored.success ? stored.data : "rose";
 }

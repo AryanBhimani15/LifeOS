@@ -22,10 +22,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // Resolved on the server and rendered into the markup, so the tint is correct
   // on the first paint rather than flipping once the client hydrates.
   //
-  // It used to be `profile.sex === "FEMALE" ? "rose" : "forest"`. That made the
-  // colour of the product a thing you could only change by editing a field that
-  // also feeds your BMR — and assumed something about you on the way. It is a
-  // setting now.
+  // Read, never derived. It used to be `profile.sex === "FEMALE" ? "rose" :
+  // "forest"` computed right here, which meant the colour of the product could
+  // only be changed by editing a field that also feeds your BMR. Setup seeds
+  // the stored value from that answer once; this is only ever the stored value.
   const palette = await getPalette(userId);
 
   return <AppShell palette={palette}>{children}</AppShell>;

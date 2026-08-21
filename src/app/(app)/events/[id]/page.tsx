@@ -3,12 +3,14 @@ import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { ArrowLeft, CalendarDays, Clock, MapPin } from "lucide-react";
 import { requireUserId } from "@/lib/session";
-import { getEvent } from "@/lib/repositories/events";
+import { getEvent, listTaskRelationshipChoices, listUnrelatedNoteChoices } from "@/lib/repositories/events";
 import { AppError } from "@/lib/errors";
 import { Attachments } from "@/components/events/Attachments";
 import { PrepTasks } from "@/components/events/PrepTasks";
 import { dayLabel, daysLeft, timeRange } from "@/components/events/UpcomingEvent";
 import { EventNote } from "@/components/events/EventNote";
+import { EventRelatedNotes } from "@/components/events/EventRelatedNotes";
+import { EventReminder } from "@/components/events/EventReminder";
 
 export const metadata = { title: "LifeOS — Event" };
 
@@ -49,6 +51,10 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
   const end = event.endAt;
   const left = daysLeft(start);
   const kind = KIND_LABEL[event.kind] ?? "Event";
+  const [availableTasks, availableNotes] = await Promise.all([
+    listTaskRelationshipChoices(userId),
+    listUnrelatedNoteChoices(userId),
+  ]);
 
   return (
     <>
@@ -82,10 +88,18 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
               ...task,
               dueAt: task.dueAt?.toISOString() ?? null,
             }))}
+            availableTasks={availableTasks.map((task) => ({ ...task, dueAt: task.dueAt?.toISOString() ?? null }))}
+          />
+          <EventRelatedNotes
+            eventId={event.id}
+            notes={event.notes.map((note) => ({ ...note, updatedAt: note.updatedAt.toISOString() }))}
+            availableNotes={availableNotes.map((note) => ({ ...note, updatedAt: note.updatedAt.toISOString() }))}
           />
         </div>
 
         <aside className="event-rail">
+          <EventReminder eventId={event.id} reminder={event.reminders[0] ? { ...event.reminders[0], remindAt: event.reminders[0].remindAt.toISOString() } : null} />
+
           <section className="rail-card">
             <div className="rail-head">
               <h3>When &amp; where</h3>
@@ -120,7 +134,7 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
             </ul>
           </section>
 
-          <section className="rail-card">
+          {(event.tags.length > 0 || event.documents.length > 0) && <section className="rail-card">
             {event.tags.length > 0 && (
               <div className="event-tags">
                 <div className="rail-head"><h3>Tags</h3></div>
@@ -136,7 +150,8 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
                 createdAt: doc.createdAt.toISOString(),
               }))}
             />
-          </section>
+          </section>}
+          {event.documents.length === 0 && <section className="event-resource-empty"><Attachments uploadUrl={`/api/events/${encodeURIComponent(event.id)}/attachments`} attachments={[]} title="Resources" /></section>}
         </aside>
       </div>
     </>

@@ -38,7 +38,7 @@ export function TaskDetailLoader({
           reminders: payload.reminders ?? [],
           documents: payload.documents ?? [],
           subtasks: payload.subtasks ?? [],
-          event: payload.events?.[0] ?? null,
+          events: (payload.eventPreparationLinks ?? []).map((link: { event: TaskDetailData["events"][number] }) => link.event),
         });
       } catch {
         if (!cancelled) setError("Couldn't reach the server.");

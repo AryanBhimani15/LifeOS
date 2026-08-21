@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { AzureBlobStorage } from "./azure";
+import { VercelBlobStorage } from "./vercel-blob";
 import { extensionFor, type Storage } from "./types";
 
 export * from "./types";
@@ -105,11 +106,17 @@ export function storage(): Storage {
       ) {
         throw new Error(
           "STORAGE_DRIVER is 'local' in production, where uploaded files are usually lost on the next deploy. " +
-            "Set STORAGE_DRIVER=azure (with AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER), " +
+            "Set STORAGE_DRIVER=vercel-blob (Vercel injects BLOB_READ_WRITE_TOKEN when a Blob store is connected), " +
+            "or STORAGE_DRIVER=azure (with AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER), " +
             "or set STORAGE_ALLOW_LOCAL=true if this host has a persistent volume mounted at STORAGE_LOCAL_DIR.",
         );
       }
       cached = new LocalStorage(process.env.STORAGE_LOCAL_DIR ?? ".storage");
+      return cached;
+    case "vercel-blob":
+      // Same shape as the Azure case: no credential is read at import time, so
+      // registering the driver costs nothing on a deployment that never uploads.
+      cached = new VercelBlobStorage();
       return cached;
     case "azure":
       // The SDK reads no credentials at import time; the connection string is

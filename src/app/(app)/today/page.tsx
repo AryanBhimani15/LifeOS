@@ -1,53 +1,18 @@
 import { requireUserId } from "@/lib/session";
-import { db } from "@/lib/db";
-import { getTodayData } from "@/lib/repositories/dashboard";
-import { getProfile } from "@/lib/repositories/fitness";
-import { headlineGoals } from "@/lib/repositories/goals";
-import { todayHabits } from "@/lib/repositories/habits";
-import { calendarItems, calendarSettings } from "@/lib/repositories/calendar";
-import { DEFAULT_KINDS, addDays as addCalendarDays } from "@/lib/calendar";
-import { endOfDayInZone, hourInZone, startOfDayInZone, todayInZone } from "@/lib/dates";
+import { getHomeData } from "@/lib/repositories/home";
+import { hourInZone } from "@/lib/dates";
 import { greetingForHour } from "@/lib/fitness";
 import { HomeUpcomingAgenda } from "@/components/home/HomeUpcomingAgenda";
 import { HomeNotesWorkspace } from "@/components/home/HomeNotesWorkspace";
 import { TodayTodoList } from "@/components/home/TodayTodoList";
 import { HomeGoals } from "@/components/home/HomeGoals";
-import { HomeHabits } from "@/components/home/HomeHabits";
+import { HomeImportantUpcoming } from "@/components/home/HomeImportantUpcoming";
 
 export const metadata = { title: "LifeOS — Home" };
 
 export default async function TodayPage() {
   const userId = await requireUserId();
-  const { today: todayIso } = await calendarSettings(userId);
-  const [data, profile, week, notes, goals, habits] = await Promise.all([
-    getTodayData(userId),
-    getProfile(userId),
-    // The same repository the Calendar page reads, so the two cannot disagree
-    // about what is happening this week.
-    calendarItems(userId, {
-      from: todayIso,
-      to: addCalendarDays(todayIso, 6),
-      kinds: DEFAULT_KINDS,
-    }),
-    db.note.findMany({
-      where: { userId },
-      select: { id: true, title: true, content: true, pinned: true, updatedAt: true },
-      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
-      take: 6,
-    }),
-    headlineGoals(userId, 3),
-    todayHabits(userId, 5),
-  ]);
-  const todayTasks = await db.task.findMany({
-    where: {
-      userId,
-      isTemplate: false,
-      dueAt: { gte: startOfDayInZone(new Date(), data.zone), lte: endOfDayInZone(new Date(), data.zone) },
-    },
-    select: { id: true, title: true, status: true },
-    orderBy: [{ status: "asc" }, { dueAt: "asc" }],
-    take: 20,
-  });
+  const data = await getHomeData(userId);
   const greeting = greetingForHour(hourInZone(data.zone));
 
   return (
@@ -55,35 +20,45 @@ export default async function TodayPage() {
       <header className="home-hero">
         <div className="home-hero-copy">
           <p>{greeting},</p>
-          <h1>{profile?.firstName ?? "there"} <span>✧</span></h1>
+          <h1>{data.profile?.firstName ?? "there"} <span>✧</span></h1>
           <small>Focus on today, progress every day.</small>
         </div>
       </header>
       <section className="home-left">
-        <TodayTodoList initialTasks={todayTasks.map((task) => ({ ...task, done: task.status === "DONE" }))} />
-
-        <HomeUpcomingAgenda items={week} today={todayIso} />
-
-        <HomeHabits
-          today={habits.today}
-          habits={habits.habits.map((habit) => ({
-            id: habit.id,
-            name: habit.name,
-            icon: habit.icon,
-            doneToday: habit.doneToday,
-            streak: habit.streak,
+        <TodayTodoList
+          key={data.todayTasks.map((task) => `${task.id}:${task.status}:${task.updatedAt.toISOString()}`).join("|")}
+          initialTasks={data.todayTasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            done: task.status === "DONE",
+            priority: task.priority,
+            project: task.project?.name ?? null,
+            dueAt: task.dueAt?.toISOString() ?? null,
+            dueHasTime: task.dueHasTime,
           }))}
+          timeZone={data.zone}
         />
 
+        <HomeImportantUpcoming upcoming={data.upcoming ? { ...data.upcoming, at: data.upcoming.at.toISOString() } : null} timeZone={data.zone} />
+
+        <HomeUpcomingAgenda items={data.week} today={data.today} />
+
         <HomeGoals
-          today={todayInZone(data.zone)}
-          goals={goals.map((goal) => ({ ...goal, targetDate: goal.targetDate?.toISOString() ?? null }))}
+          today={data.today}
+          goals={data.goals.map((goal) => ({ ...goal, targetDate: goal.targetDate?.toISOString() ?? null }))}
         />
       </section>
 
       <HomeNotesWorkspace
-        notes={notes.map((note) => ({ ...note, updatedAt: note.updatedAt.toISOString() }))}
-        focus={data.now}
+        notes={data.notes.map((note) => ({ ...note, updatedAt: note.updatedAt.toISOString() }))}
+        today={data.habits.today}
+        habits={data.habits.habits.map((habit) => ({
+          id: habit.id,
+          name: habit.name,
+          icon: habit.icon,
+          doneToday: habit.doneToday,
+          streak: habit.streak,
+        }))}
       />
     </div>
   );

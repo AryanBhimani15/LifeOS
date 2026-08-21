@@ -129,6 +129,13 @@ export default async function CalendarPage({
       </section>
 
       <section className="calendar-filters" aria-label="Filter what is shown">
+        <Link
+          href={link({ kinds: "" })}
+          className={`calendar-chip ${isDefaultKinds(kinds) ? "is-on" : ""}`}
+          aria-pressed={isDefaultKinds(kinds)}
+        >
+          <i /> All
+        </Link>
         {CALENDAR_KINDS.map((kind) => {
           const on = kinds.includes(kind);
           return (

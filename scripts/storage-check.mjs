@@ -20,6 +20,25 @@ import { Client } from "pg";
 const driver = process.env.STORAGE_DRIVER ?? "local";
 console.log(`STORAGE_DRIVER = ${driver}`);
 
+if (driver === "vercel-blob") {
+  // Reported rather than skipped: printing "Local storage directory" for a
+  // Vercel deployment is exactly the misleading answer this script exists to
+  // avoid. The SDK reads BLOB_READ_WRITE_TOKEN itself; we only say whether it
+  // is there, never what it is.
+  const { list } = await import("@vercel/blob");
+  console.log(`BLOB_READ_WRITE_TOKEN = ${process.env.BLOB_READ_WRITE_TOKEN ? "set" : "MISSING"}`);
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.error("Connect a Blob store to the Vercel project, or pull the token with `vercel env pull`.");
+    process.exit(1);
+  }
+  const { blobs } = await list();
+  console.log(`\nblobs in store: ${blobs.length}`);
+  for (const blob of blobs.slice(0, 20)) {
+    console.log(`  ${blob.pathname}  ${blob.size} bytes  ${blob.uploadedAt.toISOString()}`);
+  }
+  process.exit(0);
+}
+
 if (driver !== "azure") {
   console.log(`Local storage directory: ${process.env.STORAGE_LOCAL_DIR ?? ".storage"}`);
   process.exit(0);

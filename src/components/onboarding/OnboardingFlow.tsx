@@ -422,9 +422,10 @@ export function OnboardingFlow({
   const stageClass = `ob-stage ob-${phase} ${direction === 1 ? "ob-dir-fwd" : "ob-dir-back"}`;
 
   return (
-    // Setup wears the default palette. It used to retint on the sex question —
-    // answering "male" turned the product green — which made a health input
-    // double as a theme picker. The palette is a setting now, in Settings.
+    // Setup wears the default palette throughout, including after the sex
+    // question. It used to retint live on that answer, which made a health input
+    // read as a theme picker mid-flow; the tint it implies is applied once, on
+    // finish, and is a setting from then on.
     <div className="ob-shell" data-palette="rose">
       <div className="ob-frame">
         {!done && (

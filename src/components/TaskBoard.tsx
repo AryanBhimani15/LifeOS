@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Check, Trash2 } from "lucide-react";
+import { Check, GripVertical, Trash2 } from "lucide-react";
 import { completeTaskAction, deleteTaskAction, moveTaskAction } from "@/app/(app)/actions";
 import { AddTask } from "@/components/tasks/AddTask";
 import { TaskDetailLoader } from "@/components/tasks/TaskDetailLoader";
@@ -280,33 +280,26 @@ function Card({
     id: task.id,
   });
 
-  /**
-   * Where the pointer went down, so a drop can be told from a click.
-   *
-   * dnd-kit fires a click after every drag, so opening the panel on a bare
-   * click would open one every time a card was moved. Anything past a few
-   * pixels of travel was a drag.
-   */
-  const origin = useRef<{ x: number; y: number } | null>(null);
-
   return (
     <div
       ref={setNodeRef}
       className={isDragging ? "board-card is-dragging" : "board-card"}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      onPointerDownCapture={(e) => {
-        origin.current = { x: e.clientX, y: e.clientY };
-      }}
-      onClick={(e) => {
-        const from = origin.current;
-        if (!from) return;
-        const moved = Math.hypot(e.clientX - from.x, e.clientY - from.y);
-        if (moved < 5) onOpen();
-      }}
-      {...listeners}
-      {...attributes}
     >
-      <CardBody task={task} />
+      <button type="button" className="board-card-open" onClick={onOpen} aria-label={`Open ${task.title}`}>
+        <CardBody task={task} />
+      </button>
+      <button
+        type="button"
+        className="card-drag-handle"
+        aria-label={`Move ${task.title}`}
+        title="Drag to move"
+        onClick={(event) => event.stopPropagation()}
+        {...listeners}
+        {...attributes}
+      >
+        <GripVertical size={15} />
+      </button>
       <button
         type="button"
         className={`card-complete ${task.status === "DONE" ? "is-done" : ""}`}

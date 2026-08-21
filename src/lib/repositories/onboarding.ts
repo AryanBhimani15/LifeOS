@@ -4,7 +4,8 @@ import { todayInZone } from "@/lib/dates";
 import { calculateBurn } from "@/lib/fitness";
 import { generatePlan, starterGoals, starterHabits } from "@/lib/workout-plan";
 import type { FitnessProfileInput } from "@/lib/validation/fitness";
-import type { ActivityLevel, LifeContext, PrimaryGoal } from "@/generated/prisma/enums";
+import type { Palette } from "@/lib/validation/settings";
+import type { ActivityLevel, LifeContext, PrimaryGoal, Sex } from "@/generated/prisma/enums";
 
 /**
  * What finishing setup actually does.
@@ -24,6 +25,16 @@ export interface SetupSummary {
   plan: { name: string; daysPerWeek: number; rationale: string; sessions: number } | null;
   goalsCreated: number;
   habitsCreated: number;
+}
+
+/**
+ * The tint a new account starts on.
+ *
+ * A default, not a rule — see the note at the call site. Rose is the narrower
+ * claim of the two, so it is the one that has to be asked for.
+ */
+function paletteForSex(sex: Sex): Palette {
+  return sex === "FEMALE" ? "rose" : "blue";
 }
 
 /** The answers that decide what a plan looks like. Changing one rebuilds it. */
@@ -50,7 +61,7 @@ export async function completeOnboarding(
     }),
     db.fitnessProfile.findUnique({
       where: { userId },
-      select: { primaryGoal: true, activityLevel: true, lifeContext: true },
+      select: { primaryGoal: true, activityLevel: true, lifeContext: true, completedAt: true },
     }),
     db.workoutPlan.findFirst({
       where: { userId, archivedAt: null },
@@ -66,6 +77,21 @@ export async function completeOnboarding(
 
   const weekStartsOn = settings?.weekStartsOn ?? 1;
   const bySlug = new Map(catalogue.map((a) => [a.slug, a]));
+
+  // A first guess at the tint, and only ever a first guess.
+  //
+  // The palette used to be computed from this answer on every render, which
+  // meant the only way to change the colour of the app was to edit the field
+  // your BMR is calculated from. Seeding it once, here, gives the same first
+  // impression without the coupling: from the next screen on it is an ordinary
+  // setting, and Settings wins.
+  //
+  // Keyed on first completion rather than on "has a palette been chosen", which
+  // is not a question the column can answer — it has a default, and a row is
+  // written at registration, so a stored "rose" and an untouched "rose" are the
+  // same bytes. Someone re-opening setup a year later keeps the colour they
+  // have, whatever they answer.
+  const seedPalette = existing?.completedAt ? null : paletteForSex(input.sex);
 
   const profileFields = {
     firstName: input.firstName,
@@ -99,6 +125,14 @@ export async function completeOnboarding(
   const seedHabits = habitCount === 0;
 
   await db.$transaction(async (tx) => {
+    if (seedPalette) {
+      await tx.userSettings.upsert({
+        where: { userId },
+        create: { userId, palette: seedPalette },
+        update: { palette: seedPalette },
+      });
+    }
+
     await tx.fitnessProfile.upsert({
       where: { userId },
       create: { userId, ...profileFields },

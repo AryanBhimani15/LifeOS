@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowUpRight, CheckSquare, ChevronLeft, FileText, Loader2, Mic, Plus, Search, Tag, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronLeft, FileText, Loader2, Mic, Plus, Search, Tag, Trash2 } from "lucide-react";
 import { addQuickNoteAction, deleteNoteAction } from "@/app/(app)/actions";
 import { useToast } from "@/components/ToastProvider";
+import { HomeHabits, type HomeHabit } from "@/components/home/HomeHabits";
 
 export type HomeNote = {
   id: string;
@@ -14,8 +14,6 @@ export type HomeNote = {
   pinned: boolean;
   updatedAt: string;
 };
-type FocusItem = { id: string; title: string; due: string; tone: "blue" | "yellow" | "peach" };
-
 type Filter = "all" | "pinned";
 
 /**
@@ -23,7 +21,7 @@ type Filter = "all" | "pinned";
  * surface navigates away: Quick note is for rapid capture; Notes is for
  * browsing the notes already saved to the account.
  */
-export function HomeNotesWorkspace({ notes, focus }: { notes: HomeNote[]; focus: FocusItem[] }) {
+export function HomeNotesWorkspace({ notes, habits, today }: { notes: HomeNote[]; habits: HomeHabit[]; today: string }) {
   const { toast } = useToast();
   const router = useRouter();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -131,11 +129,7 @@ export function HomeNotesWorkspace({ notes, focus }: { notes: HomeNote[]; focus:
           </article>
         </div>
       </section>
-
-      <section className="home-sidebar-focus">
-        <header><h2>Today&apos;s focus</h2><Link href="/tasks">View all <ArrowUpRight size={13} /></Link></header>
-        {focus.length ? <div>{focus.slice(0, 4).map((task) => <Link href={`/tasks?focus=${task.id}`} key={task.id}><i className={task.tone} /><span>{task.title}</span><small>{task.due}</small></Link>)}</div> : <p>Nothing is asking for your attention.</p>}
-      </section>
+      <HomeHabits habits={habits} today={today} />
     </aside>
   );
 }

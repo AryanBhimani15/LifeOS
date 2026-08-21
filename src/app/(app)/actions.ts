@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/session";
 import { signOut } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { setTaskReminder } from "@/lib/repositories/reminders";
+import { setNoteEvent } from "@/lib/repositories/events";
 import { requireOwned } from "@/lib/authz";
 import { updateTask, captureTask, deleteTask, reorderTask } from "@/lib/repositories/tasks";
 import { instantInZone, todayDateInZone, todayInZone } from "@/lib/dates";
@@ -57,7 +59,10 @@ export async function completeTaskAction(taskId: string) {
 
 /** The Home checklist is intentionally faster than the general capture sheet:
  * every row it creates belongs to today, without asking for a second choice. */
-export async function addTodayTaskAction(title: string): Promise<{ error?: string }> {
+export async function addTodayTaskAction(title: string): Promise<{
+  error?: string;
+  task?: { id: string; title: string; dueAt: string | null; dueHasTime: boolean; priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT" };
+}> {
   const userId = await requireUserId();
   const text = title.trim();
   if (!text) return { error: "Write a task first." };
@@ -67,14 +72,28 @@ export async function addTodayTaskAction(title: string): Promise<{ error?: strin
     select: { timezone: true, weekStartsOn: true },
   });
   const zone = settings?.timezone ?? "UTC";
-  await captureTask(
+  const captured = await captureTask(
     userId,
-    { text, dueAt: instantInZone(todayInZone(zone), 23 * 60 + 59, zone), dueHasTime: false },
+    {
+      text,
+      // Home is a Today list, but an explicit natural-language date is always
+      // more meaningful than that context. `defaultDueAt` only applies when
+      // the parser finds no date at all.
+      defaultDueAt: instantInZone(todayInZone(zone), 23 * 60 + 59, zone),
+    },
     { timeZone: zone, weekStartsOn: settings?.weekStartsOn ?? 1 },
   );
   revalidatePath("/today");
   revalidatePath("/tasks");
-  return {};
+  return {
+    task: {
+      id: captured.task.id,
+      title: captured.task.title,
+      dueAt: captured.task.dueAt?.toISOString() ?? null,
+      dueHasTime: captured.task.dueHasTime,
+      priority: captured.task.priority,
+    },
+  };
 }
 
 /** Money is deliberately a small student planner, not a pretend banking feed.
@@ -326,6 +345,18 @@ export async function deleteNoteAction(noteId: string): Promise<{ error?: string
   return {};
 }
 
+/** Optional contextual organization for an existing note. The note remains
+ * standalone when eventId is null; neither operation copies or deletes it. */
+export async function setNoteEventAction(noteId: string, eventId: string | null): Promise<{ error?: string }> {
+  const userId = await requireUserId();
+  try {
+    await setNoteEvent(userId, noteId, eventId);
+    revalidatePath("/notes"); revalidatePath("/today");
+    if (eventId) revalidatePath(`/events/${eventId}`);
+    return {};
+  } catch { return { error: "Couldn't update that note connection." }; }
+}
+
 export async function addTaskAction(input: AddTaskInput): Promise<AddTaskResult> {
   const userId = await requireUserId();
 
@@ -412,6 +443,27 @@ export async function updateTaskDetailAction(
   revalidatePath("/today");
   revalidatePath("/tasks");
   return {};
+}
+
+/** A task can have several reminders in the data model, but its focused detail
+ * panel deliberately manages one primary reminder. It is enough for ordinary
+ * personal planning without pretending to be a reminder-rule editor. */
+export async function setTaskReminderAction(
+  taskId: string,
+  remindAt: string | null,
+): Promise<{ error?: string; remindAt?: string | null }> {
+  const userId = await requireUserId();
+  const parsed = remindAt === null ? null : new Date(remindAt);
+  if (parsed && Number.isNaN(parsed.getTime())) return { error: "Choose a valid reminder time." };
+
+  try {
+    const reminder = await setTaskReminder(userId, taskId, parsed);
+    revalidatePath("/today");
+    revalidatePath("/tasks");
+    return { remindAt: reminder?.remindAt.toISOString() ?? null };
+  } catch {
+    return { error: "Couldn't change that reminder." };
+  }
 }
 
 export async function deleteTaskAction(taskId: string) {

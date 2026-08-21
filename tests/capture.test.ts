@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { capture } from "@/lib/repositories/capture";
+import { captureTask } from "@/lib/repositories/tasks";
 import { extractAmount, tidyTitle } from "@/lib/validation/capture";
 import { makeTwoUsers, resetDatabase } from "./helpers/factories";
 
@@ -64,6 +65,55 @@ describe("capture", () => {
     const task = await db.task.findUniqueOrThrow({ where: { id: result.id } });
     expect(task.title).toBe("Call dad");
     expect(task.userId).toBe(alice.id);
+  });
+
+  it("uses the canonical task workflow for captured dates, priority and reminders", async () => {
+    const { alice } = await makeTwoUsers();
+    const remindAt = new Date("2026-09-11T08:30:00.000Z");
+
+    const result = await captureTask(
+      alice.id,
+      {
+        text: "submit DBMS CIA 2 on September 11 at 10am",
+        note: "Bring the normalization notes.",
+        priority: "HIGH",
+        remindAt,
+      },
+      { timeZone: "Asia/Kolkata", weekStartsOn: 1 },
+    );
+
+    expect(result.task.title).toBe("Submit DBMS CIA 2");
+    expect(result.task.description).toBe("Bring the normalization notes.");
+    expect(result.task.priority).toBe("HIGH");
+    expect(result.task.dueHasTime).toBe(true);
+    expect(result.task.boardOrder).toBeGreaterThan(0);
+    expect(result.matchedText).toMatch(/September 11 at 10am/i);
+
+    const reminder = await db.reminder.findFirstOrThrow({
+      where: { taskId: result.task.id, userId: alice.id },
+    });
+    expect(reminder.remindAt).toEqual(remindAt);
+  });
+
+  it("uses a Home default date only when the person did not type a date", async () => {
+    const { alice } = await makeTwoUsers();
+    const todayFallback = new Date("2026-08-14T22:59:00.000Z");
+
+    const plain = await captureTask(
+      alice.id,
+      { text: "read the database chapter", defaultDueAt: todayFallback },
+      { timeZone: "Asia/Kolkata", weekStartsOn: 1 },
+    );
+    expect(plain.task.dueAt).toEqual(todayFallback);
+    expect(plain.task.dueHasTime).toBe(false);
+
+    const dated = await captureTask(
+      alice.id,
+      { text: "submit DBMS CIA 2 tomorrow at 10am", defaultDueAt: todayFallback },
+      { timeZone: "Asia/Kolkata", weekStartsOn: 1 },
+    );
+    expect(dated.task.dueAt).not.toEqual(todayFallback);
+    expect(dated.task.dueHasTime).toBe(true);
   });
 
   it("creates a goal, project and note", async () => {

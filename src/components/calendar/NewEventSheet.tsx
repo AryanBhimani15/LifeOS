@@ -7,7 +7,7 @@ import { createCalendarEventAction } from "@/app/(app)/calendar/actions";
 import { useToast } from "@/components/ToastProvider";
 
 /**
- * Adding an event — and only an event.
+ * A compact Calendar-native entry point for Events and Exams.
  *
  * Tasks and habits are conspicuously absent. Both already have a front door
  * with its own rules (a task goes through the capture parser; a habit needs a
@@ -33,6 +33,7 @@ export function NewEventSheet({ defaultDate }: { defaultDate: string }) {
 
   const [form, setForm] = useState({
     title: "",
+    kind: "EVENT" as "EVENT" | "EXAM",
     date: defaultDate,
     startTime: "09:00",
     endTime: "10:00",
@@ -76,6 +77,7 @@ export function NewEventSheet({ defaultDate }: { defaultDate: string }) {
     startTransition(async () => {
       const result = await createCalendarEventAction({
         title,
+        kind: form.kind,
         date: form.date,
         allDay,
         startTime: allDay ? undefined : form.startTime,
@@ -109,13 +111,13 @@ export function NewEventSheet({ defaultDate }: { defaultDate: string }) {
             className="goal-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="New event"
+            aria-label="New calendar item"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <h2>New event</h2>
-                <p>Something that happens between two times.</p>
+                <h2>Add to calendar</h2>
+                <p>A real event or exam — never a duplicate calendar record.</p>
               </div>
               <button type="button" onClick={close} aria-label="Close">
                 <X size={17} />
@@ -123,13 +125,29 @@ export function NewEventSheet({ defaultDate }: { defaultDate: string }) {
             </header>
 
             <form onSubmit={submit}>
+              <div className="calendar-create-types" role="group" aria-label="What are you adding?">
+                <button
+                  type="button"
+                  className={form.kind === "EVENT" ? "is-selected" : ""}
+                  onClick={() => set("kind", "EVENT")}
+                >
+                  Event <small>Class, meeting, activity</small>
+                </button>
+                <button
+                  type="button"
+                  className={form.kind === "EXAM" ? "is-selected" : ""}
+                  onClick={() => set("kind", "EXAM")}
+                >
+                  Exam <small>Test, CIA, assessment</small>
+                </button>
+              </div>
               <label className="goal-field">
                 <span>Title</span>
                 <input
                   ref={firstField}
                   value={form.title}
                   onChange={(event) => set("title", event.target.value)}
-                  placeholder="Project review with the guide"
+                  placeholder={form.kind === "EXAM" ? "DBMS CIA 2" : "Project review with the guide"}
                   maxLength={200}
                   required
                 />
@@ -221,7 +239,7 @@ export function NewEventSheet({ defaultDate }: { defaultDate: string }) {
                 </button>
                 <button type="submit" className="goal-primary-button" disabled={pending}>
                   {pending ? <Loader2 size={15} className="spin" /> : <Plus size={15} />}
-                  {pending ? "Adding…" : "Add event"}
+                  {pending ? "Adding…" : form.kind === "EXAM" ? "Add exam" : "Add event"}
                 </button>
               </footer>
             </form>

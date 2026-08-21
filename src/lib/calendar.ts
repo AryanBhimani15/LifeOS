@@ -39,6 +39,8 @@ export interface CalendarItem {
   detail: string | null;
   /** Whether this item's date can be changed from the calendar. */
   movable: boolean;
+  /** Present for dated tasks so the planning indicator can respect urgency. */
+  priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 }
 
 export const KIND_LABEL: Record<CalendarKind, string> = {
@@ -178,6 +180,118 @@ export function compareItems(a: CalendarItem, b: CalendarItem): number {
 
 export function dayCells(from: string, count: number): string[] {
   return Array.from({ length: count }, (_, index) => addDays(from, index));
+}
+
+// ---------------------------------------------------------------------------
+// Schedule load and timed layout
+// ---------------------------------------------------------------------------
+
+/**
+ * A transparent planning-density label, never a stress or wellbeing score.
+ *
+ * Exams deliberately outweigh normal events and a task deadline contributes
+ * more when its underlying task was marked urgent. The thresholds are small on
+ * purpose: they distinguish a quiet day from a class/exam-heavy college day
+ * without producing an intimidating heatmap or a fake percentage.
+ */
+export type ScheduleLoadLabel = "Light" | "Moderate" | "Heavy" | "Very heavy";
+
+export interface ScheduleLoad {
+  score: number;
+  label: ScheduleLoadLabel;
+}
+
+const LOAD_WEIGHT: Record<CalendarKind, number> = {
+  task: 2,
+  exam: 8,
+  event: 3,
+  goal: 3,
+  fitness: 2,
+  habit: 1,
+};
+
+const TASK_PRIORITY_WEIGHT: Record<NonNullable<CalendarItem["priority"]>, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+  URGENT: 3,
+};
+
+/** Returns null for a genuinely clear day. */
+export function scheduleLoad(items: CalendarItem[]): ScheduleLoad | null {
+  let score = 0;
+
+  for (const item of items) {
+    score += LOAD_WEIGHT[item.kind];
+    if (item.kind === "task" && item.priority) score += TASK_PRIORITY_WEIGHT[item.priority];
+
+    // A long scheduled commitment is busier than a short meeting. All-day
+    // deadlines intentionally get no time bonus — they are deadlines, not a
+    // pretend 24-hour appointment.
+    if (!item.allDay && item.startAt && item.endAt) {
+      const duration = Math.max(0, new Date(item.endAt).getTime() - new Date(item.startAt).getTime());
+      score += Math.min(2, Math.floor(duration / 60 / 60_000));
+    }
+  }
+
+  if (score === 0) return null;
+  if (score <= 3) return { score, label: "Light" };
+  if (score <= 7) return { score, label: "Moderate" };
+  if (score <= 13) return { score, label: "Heavy" };
+  return { score, label: "Very heavy" };
+}
+
+export interface TimedPlacement {
+  item: CalendarItem;
+  start: number;
+  end: number;
+  column: number;
+  columns: number;
+}
+
+/**
+ * Allocates columns inside an overlap cluster. The calculated placements let
+ * week/day render timed commitments side-by-side instead of hiding a lecture
+ * behind an exam that starts at the same time.
+ */
+export function layoutTimedItems(items: CalendarItem[]): TimedPlacement[] {
+  const sorted = items
+    .filter((item) => !item.allDay && item.minutes !== null)
+    .map((item) => {
+      const start = item.minutes ?? 0;
+      const duration = item.startAt && item.endAt
+        ? Math.max(30, Math.round((new Date(item.endAt).getTime() - new Date(item.startAt).getTime()) / 60_000))
+        : 45;
+      return { item, start, end: Math.min(24 * 60, start + duration) };
+    })
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.item.title.localeCompare(b.item.title));
+
+  const output: TimedPlacement[] = [];
+  let active: TimedPlacement[] = [];
+  let cluster: TimedPlacement[] = [];
+  let clusterColumns = 0;
+
+  const finishCluster = () => {
+    for (const placement of cluster) placement.columns = Math.max(1, clusterColumns);
+    cluster = [];
+    clusterColumns = 0;
+  };
+
+  for (const candidate of sorted) {
+    active = active.filter((placement) => placement.end > candidate.start);
+    if (active.length === 0 && cluster.length > 0) finishCluster();
+    const used = new Set(active.map((placement) => placement.column));
+    let column = 0;
+    while (used.has(column)) column += 1;
+    const placement: TimedPlacement = { ...candidate, column, columns: 1 };
+    output.push(placement);
+    active.push(placement);
+    cluster.push(placement);
+    clusterColumns = Math.max(clusterColumns, active.length);
+  }
+  if (cluster.length > 0) finishCluster();
+
+  return output;
 }
 
 // ---------------------------------------------------------------------------

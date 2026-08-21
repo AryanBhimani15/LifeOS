@@ -10,7 +10,10 @@ import { timezone } from "./common";
  * left out until something consumes them.
  */
 
-export const palette = z.enum(["rose", "forest"]);
+export const palette = z.enum(["rose", "forest", "blue"]);
+
+/** Lives here rather than with the repository so client components can name it. */
+export type Palette = z.infer<typeof palette>;
 
 /** ISO-4217, upper-cased. Not a closed list: money formatting takes any code. */
 export const currencyCode = z

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { badRequest, notFound } from "@/lib/errors";
+import { recomputeRelativeEventReminders } from "@/lib/repositories/reminders";
 import {
   endOfDayInZone,
   parseCalendarDate,
@@ -80,6 +81,7 @@ export async function calendarItems(
             id: true,
             title: true,
             status: true,
+            priority: true,
             dueAt: true,
             dueHasTime: true,
             project: { select: { name: true } },
@@ -166,10 +168,11 @@ export async function calendarItems(
       // The board and the calendar are the same row, so a task ticked off
       // anywhere is drawn as done here without anything syncing.
       done: task.status === "DONE" || task.status === "CANCELLED",
-      href: `/tasks?task=${task.id}`,
+      href: `/tasks?focus=${task.id}`,
       minutes: task.dueHasTime ? minutesOf(task.dueAt, zone) : null,
       detail: task.project?.name ?? null,
       movable: true,
+      priority: task.priority,
     });
   }
 
@@ -343,9 +346,12 @@ export async function rescheduleItem(
       // stays 90 minutes even when it crosses a DST boundary.
       const span = event.endAt.getTime() - event.startAt.getTime();
       const startAt = event.allDay ? startOfCalendarDayInZone(day, zone) : shiftTo(event.startAt);
-      await db.event.update({
-        where: { id: sourceId },
-        data: { startAt, endAt: new Date(startAt.getTime() + span) },
+      await db.$transaction(async (tx) => {
+        await tx.event.update({
+          where: { id: sourceId },
+          data: { startAt, endAt: new Date(startAt.getTime() + span) },
+        });
+        await recomputeRelativeEventReminders(tx, sourceId, startAt);
       });
       return;
     }

@@ -16,7 +16,7 @@ import {
 /**
  * Server actions for the calendar.
  *
- * There are only two, and that is the point: create an *event*, and move
+ * There are only two, and that is the point: create an event/exam, and move
  * something that already exists. Everything else on the calendar is created by
  * the feature that owns it.
  */
@@ -64,7 +64,7 @@ export async function createCalendarEventAction(input: unknown): Promise<Result 
 
     const event = await createEvent(userId, {
       title: body.title,
-      kind: "EVENT",
+      kind: body.kind,
       startAt,
       endAt,
       allDay: body.allDay,
@@ -78,6 +78,7 @@ export async function createCalendarEventAction(input: unknown): Promise<Result 
           userId,
           eventId: event.id,
           remindAt: new Date(startAt.getTime() - body.remindMinutesBefore * 60_000),
+          relativeMinutesBefore: body.remindMinutesBefore,
         },
       });
     }

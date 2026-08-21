@@ -6,9 +6,13 @@ import {
   createEvent,
   deleteEvent,
   getEvent,
+  linkTaskToEvent,
   listUpcomingEvents,
   removeAttachment,
+  setEventReminder,
+  setNoteEvent,
 } from "@/lib/repositories/events";
+import { calendarItems } from "@/lib/repositories/calendar";
 import { isAllowedType, storage } from "@/lib/storage";
 import { makeTwoUsers, makeUser, resetDatabase } from "./helpers/factories";
 
@@ -96,6 +100,59 @@ describe("events", () => {
 
     const upcoming = await listUpcomingEvents(user.id);
     expect(upcoming.map((e) => e.title)).toEqual(["Coming up"]);
+  });
+
+  it("connects preparation to a real task and exposes it from both sides", async () => {
+    const user = await makeUser();
+    const event = await makeExam(user.id);
+    const task = await db.task.create({ data: { userId: user.id, title: "Revise normalization", dueAt: new Date(Date.now() + hour) } });
+    await linkTaskToEvent(user.id, event.id, task.id);
+
+    expect((await getEvent(user.id, event.id)).prepTasks.map((item) => item.id)).toEqual([task.id]);
+    expect(await db.eventPreparationTask.count({ where: { eventId: event.id, taskId: task.id } })).toBe(1);
+  });
+
+  it("keeps notes when a relation is removed or the event is deleted", async () => {
+    const user = await makeUser();
+    const event = await makeExam(user.id);
+    const note = await db.note.create({ data: { userId: user.id, title: "Lecturer note", content: "Normalization matters." } });
+    await setNoteEvent(user.id, note.id, event.id);
+    expect((await getEvent(user.id, event.id)).notes.map((item) => item.id)).toContain(note.id);
+
+    await setNoteEvent(user.id, note.id, null);
+    expect(await db.note.findUniqueOrThrow({ where: { id: note.id } })).toMatchObject({ eventId: null });
+    await setNoteEvent(user.id, note.id, event.id);
+    await deleteEvent(user.id, event.id);
+    expect(await db.note.findUniqueOrThrow({ where: { id: note.id } })).toMatchObject({ eventId: null });
+  });
+
+  it("never lets another user connect a task or note to their event", async () => {
+    const { alice, bob } = await makeTwoUsers();
+    const event = await makeExam(alice.id);
+    const task = await db.task.create({ data: { userId: bob.id, title: "Bob's task" } });
+    const note = await db.note.create({ data: { userId: bob.id, title: "Bob's note", content: "Private" } });
+    await expect(linkTaskToEvent(alice.id, event.id, task.id)).rejects.toThrow(AppError);
+    await expect(setNoteEvent(bob.id, note.id, event.id)).rejects.toThrow(AppError);
+  });
+
+  it("removes only the preparation link when its task is deleted", async () => {
+    const user = await makeUser();
+    const event = await makeExam(user.id);
+    const task = await db.task.create({ data: { userId: user.id, title: "Practice joins" } });
+    await linkTaskToEvent(user.id, event.id, task.id);
+    await db.task.delete({ where: { id: task.id } });
+    expect((await getEvent(user.id, event.id)).prepTasks).toHaveLength(0);
+  });
+
+  it("stores an event reminder without creating a second calendar object", async () => {
+    const user = await makeUser();
+    const event = await makeExam(user.id);
+    await setEventReminder(user.id, event.id, new Date(Date.now() + hour));
+    const detail = await getEvent(user.id, event.id);
+    expect(detail.reminders).toHaveLength(1);
+    const day = event.startAt.toISOString().slice(0, 10);
+    const calendar = await calendarItems(user.id, { from: day, to: day, kinds: ["event", "exam", "task"] });
+    expect(calendar.filter((item) => item.key === `event:${event.id}`)).toHaveLength(1);
   });
 });
 

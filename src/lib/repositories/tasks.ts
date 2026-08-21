@@ -205,6 +205,11 @@ export interface CaptureTaskInput {
   projectId?: string | null;
   parentId?: string | null;
   priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  /**
+   * A contextual fallback used by focused capture surfaces such as Home.
+   * Unlike `dueAt`, this never overrides a date the person actually typed.
+   */
+  defaultDueAt?: Date | null;
 }
 
 export interface CaptureTaskResult {
@@ -224,31 +229,42 @@ export async function captureTask(
   });
 
   const explicitDate = input.dueAt !== undefined;
-  const dueAt = explicitDate ? input.dueAt : parsed.dueAt;
-  const dueHasTime = explicitDate ? (input.dueHasTime ?? false) : parsed.dueHasTime;
+  const dueAt = explicitDate ? input.dueAt : parsed.dueAt ?? input.defaultDueAt ?? null;
+  const dueHasTime = explicitDate
+    ? (input.dueHasTime ?? false)
+    : parsed.dueAt
+      ? parsed.dueHasTime
+      : false;
 
-  const task = await createTask(userId, {
-    // Filler and capitalisation are tidied here so every entry point gets it.
-    // Speech in particular arrives as "remind me to call dad", and a task list
-    // full of "remind me to…" is a list nobody can scan.
-    title: tidyTitle(parsed.title).slice(0, 200),
-    description: input.note?.trim() || null,
-    status: "TODO",
-    // Nothing is inferred about importance, but a choice in the capture
-    // sheet is preserved instead of being silently reset to medium.
-    priority: input.priority ?? "MEDIUM",
-    dueAt: dueAt ?? null,
-    dueHasTime,
-    projectId: input.projectId ?? null,
-    parentId: input.parentId ?? null,
-    tagIds: [],
-  });
-
-  if (input.remindAt) {
-    await db.reminder.create({
-      data: { userId, taskId: task.id, remindAt: input.remindAt },
+  // The task and its optional reminder form one capture result. Keeping them
+  // in the same transaction means a storage or database failure cannot leave
+  // a task that looks scheduled but silently has no reminder behind it.
+  const task = await db.$transaction(async (tx) => {
+    const created = await createTaskInTransaction(tx, userId, {
+      // Filler and capitalisation are tidied here so every entry point gets it.
+      // Speech in particular arrives as "remind me to call dad", and a task list
+      // full of "remind me to…" is a list nobody can scan.
+      title: tidyTitle(parsed.title).slice(0, 200),
+      description: input.note?.trim() || null,
+      status: "TODO",
+      // Nothing is inferred about importance, but a choice in the capture
+      // sheet is preserved instead of being silently reset to medium.
+      priority: input.priority ?? "MEDIUM",
+      dueAt: dueAt ?? null,
+      dueHasTime,
+      projectId: input.projectId ?? null,
+      parentId: input.parentId ?? null,
+      tagIds: [],
     });
-  }
+
+    if (input.remindAt) {
+      await tx.reminder.create({
+        data: { userId, taskId: created.id, remindAt: input.remindAt },
+      });
+    }
+
+    return created;
+  });
 
   return { task, matchedText: explicitDate ? null : parsed.matchedText };
 }
@@ -269,6 +285,7 @@ export async function getTaskDetail(userId: string, id: string) {
       title: true,
       description: true,
       status: true,
+      priority: true,
       dueAt: true,
       dueHasTime: true,
       project: { select: { name: true } },
@@ -285,10 +302,9 @@ export async function getTaskDetail(userId: string, id: string) {
         select: { id: true, name: true, mimeType: true, sizeBytes: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       },
-      events: {
-        select: { id: true, title: true, startAt: true, endAt: true },
-        orderBy: { startAt: "asc" },
-        take: 1,
+      eventPreparationLinks: {
+        select: { event: { select: { id: true, title: true, kind: true, startAt: true, endAt: true, allDay: true } } },
+        orderBy: { event: { startAt: "asc" } },
       },
     },
   });

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, CalendarDays, Check, ListTree, Loader2, StickyNote, Trash2, X } from "lucide-react";
 import { useToast } from "@/components/ToastProvider";
-import { deleteTaskAction, updateTaskDetailAction } from "@/app/(app)/actions";
+import { deleteTaskAction, setTaskReminderAction, updateTaskDetailAction } from "@/app/(app)/actions";
 import { Attachments, type AttachmentData } from "@/components/events/Attachments";
 
 /**
@@ -28,7 +28,7 @@ export interface TaskDetailData {
   dueHasTime: boolean;
   subtasks: { id: string; title: string; status: string }[];
   reminders: { id: string; remindAt: string }[];
-  event: { id: string; title: string; startAt: string; endAt: string } | null;
+  events: { id: string; title: string; kind: string; startAt: string; endAt: string; allDay: boolean }[];
   project: { name: string } | null;
   documents: AttachmentData[];
 }
@@ -67,6 +67,8 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
   const [note, setNote] = useState(task.description ?? "");
   const [showNote, setShowNote] = useState(Boolean(task.description));
   const [showDate, setShowDate] = useState(false);
+  const [reminder, setReminder] = useState<string | null>(task.reminders[0]?.remindAt ?? null);
+  const [showReminder, setShowReminder] = useState(Boolean(task.reminders[0]));
   /**
    * Held locally as well as on the server.
    *
@@ -92,6 +94,19 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
       const result = await updateTaskDetailAction(task.id, patch);
       if (result.error) toast(result.error, "error");
       else router.refresh();
+    });
+  };
+
+  const saveReminder = (value: string | null) => {
+    startTransition(async () => {
+      const result = await setTaskReminderAction(task.id, value);
+      if (result.error) {
+        toast(result.error, "error");
+        return;
+      }
+      setReminder(result.remindAt ?? null);
+      setShowReminder(Boolean(result.remindAt));
+      router.refresh();
     });
   };
 
@@ -205,14 +220,29 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
           </section>
         )}
 
-        {task.reminders.length > 0 && (
+        {showReminder && (
           <section className="task-sheet-section">
             <h3>
               <Bell size={13} /> Reminder
             </h3>
-            <p className="task-sheet-line">
-              {formatWhen(task.reminders[0].remindAt, true)}
-            </p>
+            {reminder ? (
+              <div className="task-sheet-reminder">
+                <p className="task-sheet-line">{formatWhen(reminder, true)}</p>
+                <button type="button" onClick={() => saveReminder(null)} disabled={pending}>Remove</button>
+              </div>
+            ) : (
+              <div className="task-sheet-dateedit">
+                <input
+                  type="datetime-local"
+                  aria-label="Reminder time"
+                  defaultValue={task.dueAt ? toLocalInput(task.dueAt) : ""}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    saveReminder(new Date(event.target.value).toISOString());
+                  }}
+                />
+              </div>
+            )}
           </section>
         )}
 
@@ -226,22 +256,17 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
 
         {/* The distinction the architecture exists for: a deadline is a date on
             the task, an exam is an Event the task points at. */}
-        {task.event && (
+        {task.events.length > 0 && (
           <section className="task-sheet-section">
             <h3>
-              <CalendarDays size={13} /> Event
+              <CalendarDays size={13} /> Related to
             </h3>
-            <p className="task-sheet-line">
-              <b>{task.event.title}</b>
-              <span>
-                {new Intl.DateTimeFormat("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                }).format(new Date(task.event.startAt))}
-              </span>
-            </p>
+            {task.events.map((event) => (
+              <button key={event.id} type="button" className="task-sheet-line task-sheet-event-link" onClick={() => { onClose(); router.push(`/events/${event.id}`); }}>
+                <b>{event.title}</b>
+                <span>{event.kind.toLowerCase().replace(/^./, (letter) => letter.toUpperCase())} · {formatWhen(event.startAt, !event.allDay)}</span>
+              </button>
+            ))}
           </section>
         )}
 
@@ -254,6 +279,11 @@ export function TaskDetail({ task, onClose }: { task: TaskDetailData; onClose: (
           {!task.dueAt && !showDate && (
             <button type="button" onClick={() => setShowDate(true)}>
               <CalendarDays size={13} /> Add date
+            </button>
+          )}
+          {!showReminder && (
+            <button type="button" onClick={() => setShowReminder(true)}>
+              <Bell size={13} /> Set reminder
             </button>
           )}
           <button

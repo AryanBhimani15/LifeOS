@@ -16,9 +16,11 @@ import {
   addMonths,
   compareItems,
   groupByDay,
+  layoutTimedItems,
   monthGridRange,
   monthTitle,
   rangeFor,
+  scheduleLoad,
   startOfWeek,
   step,
   weekdayHeadings,
@@ -27,6 +29,7 @@ import {
   type CalendarKind,
 } from "@/lib/calendar";
 import { todayInZone } from "@/lib/dates";
+import { createCalendarEventSchema } from "@/lib/validation/calendar";
 import { makeTwoUsers, makeUser, makeWorkout, resetDatabase } from "./helpers/factories";
 
 /**
@@ -113,6 +116,60 @@ describe("calendar arithmetic", () => {
     expect(isDefaultKinds([...DEFAULT_KINDS])).toBe(true);
     expect(isDefaultKinds([...DEFAULT_KINDS, "habit"])).toBe(false);
     expect(isDefaultKinds(["task"])).toBe(false);
+  });
+
+  it("uses transparent, unequal weights for schedule load", () => {
+    const item = (kind: CalendarKind, patch: Partial<CalendarItem> = {}): CalendarItem => ({
+      key: `${kind}-${Math.random()}`,
+      kind,
+      sourceId: "source",
+      title: kind,
+      day: "2026-08-14",
+      startAt: null,
+      endAt: null,
+      allDay: true,
+      done: false,
+      href: null,
+      minutes: null,
+      detail: null,
+      movable: false,
+      ...patch,
+    });
+
+    expect(scheduleLoad([])).toBeNull();
+    expect(scheduleLoad([item("habit")])).toMatchObject({ label: "Light" });
+    expect(scheduleLoad([
+      item("exam"),
+      item("event"), item("event"), item("event"), item("event"),
+      item("task", { priority: "HIGH" }), item("task", { priority: "HIGH" }),
+    ])).toMatchObject({ label: "Very heavy" });
+  });
+
+  it("lays overlapping timed commitments side by side", () => {
+    const base = (key: string, minutes: number, endAt: string): CalendarItem => ({
+      key, kind: "event", sourceId: key, title: key, day: "2026-08-14",
+      startAt: `2026-08-14T${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}:00.000Z`,
+      endAt, allDay: false, done: false, href: null, minutes, detail: null, movable: true,
+    });
+    const placements = layoutTimedItems([
+      base("lecture", 600, "2026-08-14T11:00:00.000Z"),
+      base("exam", 630, "2026-08-14T11:30:00.000Z"),
+      base("lunch", 690, "2026-08-14T12:00:00.000Z"),
+    ]);
+    expect(placements.find((item) => item.item.key === "lecture")?.columns).toBe(2);
+    expect(placements.find((item) => item.item.key === "exam")?.columns).toBe(2);
+    expect(placements.find((item) => item.item.key === "lunch")?.column).toBe(0);
+  });
+
+  it("accepts an exam in the compact calendar entry flow", () => {
+    expect(createCalendarEventSchema.parse({
+      title: "DBMS CIA 2",
+      kind: "EXAM",
+      date: "2026-09-11",
+      startTime: "10:00",
+      endTime: "11:30",
+      allDay: false,
+    }).kind).toBe("EXAM");
   });
 });
 

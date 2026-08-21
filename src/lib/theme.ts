@@ -64,7 +64,10 @@ export function useTheme() {
 export const THEME_INIT_SCRIPT = `
 (function(){try{
   var s=localStorage.getItem('${STORAGE_KEY}');
-  var d=s?s==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  /* LifeOS is intentionally a light-first product. A device's dark system
+     preference must not silently replace the approved pink/white design; dark
+     mode is applied only when the person has explicitly selected it. */
+  var d=s==='dark';
   if(d)document.documentElement.classList.add('${DARK_CLASS}');
 }catch(e){}})();
 `.trim();
