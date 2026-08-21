@@ -96,6 +96,13 @@ It builds the standalone output, runs as a non-root user, and exposes
 `/api/health`, which returns 503 when the database is unreachable rather than a
 misleading 200.
 
+`output: "standalone"` in `next.config.ts` is switched off when `VERCEL` is set.
+Standalone mode relocates Next's file-tracing output, and Vercel's post-build
+step then fails on a missing `.next/next-server.js.nft.json` — after compiling,
+type-checking and rendering every page, so the error names none of our code. If
+you move to another container host, nothing changes; that path still gets the
+standalone build.
+
 ## 6. Reminder scheduler
 
 The app persists reminders and creates **in-app** notification records through
